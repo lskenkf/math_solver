@@ -3,7 +3,7 @@ import base64
 import json
 import logging
 import asyncio
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from fastapi import FastAPI, UploadFile, File, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -36,8 +36,8 @@ class SolutionStep(BaseModel):
     result: str
 
 class Solution(BaseModel):
-    x: float = None
-    y: float = None
+    x: Optional[float] = None
+    y: Optional[float] = None
 
 class MathSolutionResponse(BaseModel):
     title: str
