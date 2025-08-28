@@ -7,6 +7,9 @@
 .env.test.local
 .env.production.local
 
+# BUT allow .env.example (template file)
+!.env.example
+
 # Python
 __pycache__/
 *.py[cod]
