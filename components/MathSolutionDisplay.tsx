@@ -12,14 +12,14 @@ export function MathSolutionDisplay({ solution }: Props) {
   return (
     <ScrollView style={styles.container}>
       <ThemedView style={styles.solutionContainer}>
-        {/* Main Title */}
+        {/* Problem Type */}
         <ThemedView style={styles.titleContainer}>
           <ThemedText type="title" style={styles.title}>
-            Math Solver
+            {solution.problem_type}
           </ThemedText>
         </ThemedView>
 
-        {/* Problem Statement */}
+        {/* Extracted Problem */}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>
             📝 Problem Statement
@@ -29,17 +29,7 @@ export function MathSolutionDisplay({ solution }: Props) {
           </ThemedView>
         </ThemedView>
 
-        {/* Problem Type */}
-        <ThemedView style={styles.section}>
-          <ThemedText type="subtitle" style={styles.sectionTitle}>
-            🏷️ Problem Type
-          </ThemedText>
-          <ThemedView style={styles.problemTypeContainer}>
-            <ThemedText style={styles.problemType}>{solution.problem_type}</ThemedText>
-          </ThemedView>
-        </ThemedView>
-
-        {/* Solution Approach */}
+        {/* Approach */}
         <ThemedView style={styles.section}>
           <ThemedText type="subtitle" style={styles.sectionTitle}>
             🎯 Solution Approach
@@ -166,20 +156,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'monospace',
     fontWeight: '500',
-  },
-  problemTypeContainer: {
-    padding: 12,
-    backgroundColor: '#e1f5fe',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4fc3f7',
-    alignItems: 'center',
-  },
-  problemType: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: '#0277bd',
-    textTransform: 'capitalize',
   },
   approachContainer: {
     padding: 12,
