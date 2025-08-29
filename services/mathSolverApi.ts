@@ -5,6 +5,13 @@
 
 import { API_CONFIG } from '@/config/api';
 
+// Backend response interface - matches what the backend actually returns
+export interface BackendResponse {
+  extracted_problem: string;
+  step_by_step_solution: string;
+}
+
+// Frontend display interface - what our components expect
 export interface SolutionStep {
   description: string;
   calculation: string;
@@ -17,11 +24,12 @@ export interface Solution {
 }
 
 export interface MathSolutionResponse {
-  title: string;
-  equations: string[];
+  problem_type: string;
+  approach: string;
+  extracted_problem: string;
   steps: SolutionStep[];
   solution: Solution;
-  verification: string;
+  raw_response?: string; // Store the raw JSON response for debugging
 }
 
 export interface ApiError {
@@ -31,6 +39,13 @@ export interface ApiError {
 class MathSolverApiService {
   private baseUrl = API_CONFIG.BASE_URL;
   private workingUrl: string | null = null; // Cache the working URL
+  
+  constructor() {
+    // Log configuration on startup
+    console.log('📡 Math Solver API Service Configuration:');
+    console.log(`🎯 Primary URL: ${this.baseUrl}`);
+    console.log(`🔄 Fallback URLs: ${API_CONFIG.FALLBACK_URLS.join(', ')}`);
+  }
   
   /**
    * Update the base URL for the API
@@ -86,7 +101,7 @@ class MathSolverApiService {
     
     for (const url of urls) {
       try {
-        console.log(`Trying backend URL: ${url}`);
+        console.log(`🔄 Trying backend URL: ${url}`);
         const result = await operation(url);
         
         // Cache the working URL for future requests
@@ -94,9 +109,10 @@ class MathSolverApiService {
         this.baseUrl = url;
         
         console.log(`✅ Successfully connected to backend at: ${url}`);
+        console.log(`🎯 This URL will be cached for future requests`);
         return result;
       } catch (error) {
-        console.log(`❌ Failed to connect to ${url}:`, error);
+        console.log(`❌ Failed to connect to ${url}:`, error instanceof Error ? error.message : error);
         lastError = error as Error;
         continue;
       }
@@ -108,9 +124,9 @@ class MathSolverApiService {
   /**
    * Check if the backend service is healthy
    */
-  async checkHealth(): Promise<{ status: string; service: string }> {
+  async checkHealth(): Promise<{ message: string; status: string }> {
     return this.tryMultipleUrls(async (url) => {
-      const response = await this.fetchWithTimeout(`${url}/health`, {
+      const response = await this.fetchWithTimeout(`${url}/`, {
         method: 'GET',
         headers: {
           'Accept': 'application/json',
@@ -126,6 +142,89 @@ class MathSolverApiService {
   }
 
   /**
+   * Parse the backend JSON response into our frontend format
+   */
+  private parseBackendResponse(backendResponse: BackendResponse): MathSolutionResponse {
+    const { extracted_problem, step_by_step_solution } = backendResponse;
+    
+    // Parse the GPT JSON response
+    let gptResponse;
+    try {
+      gptResponse = JSON.parse(step_by_step_solution);
+      console.log("✅ Parsed GPT response:", gptResponse);
+    } catch (error) {
+      console.warn("❌ Failed to parse GPT response as JSON:", error);
+      console.log("📄 Raw GPT response:", step_by_step_solution);
+      // Fallback for non-JSON responses
+      gptResponse = {
+        problem_type: "Math Problem",
+        approach: "AI Analysis",
+        solution: [step_by_step_solution]
+      };
+    }
+    
+    // Extract the expected structure from GPT response
+    const problemType = gptResponse.problem_type || "Math Problem";
+    const approach = gptResponse.approach || "AI-generated solution";
+    const solutionSteps = Array.isArray(gptResponse.solution) ? gptResponse.solution : [gptResponse.solution || "No solution provided"];
+    
+    // Convert solution steps to our frontend format
+    const steps: SolutionStep[] = solutionSteps.map((stepText: string, index: number) => {
+      const isLastStep = index === solutionSteps.length - 1;
+      return {
+        description: isLastStep ? "Final Answer" : `Step ${index + 1}`,
+        calculation: stepText,
+        result: isLastStep ? "✅ Complete" : "→ Continue"
+      };
+    });
+    
+    // Try to extract numerical solution from the final step
+    const finalStep = solutionSteps[solutionSteps.length - 1] || "";
+    const numericalSolution = this.extractNumericalSolution(finalStep);
+    
+    const mappedResult = {
+      problem_type: problemType,
+      approach: approach,
+      extracted_problem: extracted_problem,
+      steps: steps,
+      solution: numericalSolution,
+      raw_response: step_by_step_solution
+    };
+    
+    console.log("🎯 Final mapped result for UI:", mappedResult);
+    return mappedResult;
+  }
+
+  /**
+   * Extract numerical solutions from the final step text
+   */
+  private extractNumericalSolution(finalStep: string): Solution {
+    // Try to find x = value and y = value patterns
+    const xMatch = finalStep.match(/x\s*=\s*([-+]?\d*\.?\d+(?:\/\d+)?)/i);
+    const yMatch = finalStep.match(/y\s*=\s*([-+]?\d*\.?\d+(?:\/\d+)?)/i);
+    
+    return {
+      x: xMatch ? this.parseFraction(xMatch[1]) : null,
+      y: yMatch ? this.parseFraction(yMatch[1]) : null
+    };
+  }
+
+  /**
+   * Parse fractions like "25/16" into decimal numbers
+   */
+  private parseFraction(value: string): number | null {
+    try {
+      if (value.includes('/')) {
+        const [numerator, denominator] = value.split('/');
+        return parseInt(numerator) / parseInt(denominator);
+      }
+      return parseFloat(value);
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Solve a math equation from an image
    * @param imageUri URI of the image containing the math equation
    * @returns Promise with the solution response
@@ -135,25 +234,24 @@ class MathSolverApiService {
       // Create form data
       const formData = new FormData();
       
-      // Add the image to form data
-      formData.append('image', {
+      // Add the image to form data with the correct field name expected by backend
+      formData.append('file', {
         uri: imageUri,
         type: 'image/jpeg',
         name: 'math_equation.jpg',
       } as any);
 
-      // Make the API call with timeout
-      const response = await this.fetchWithTimeout(`${url}/solve-equation`, {
+      // Make the API call with timeout - note: no Content-Type header for FormData
+      const response = await this.fetchWithTimeout(`${url}/solve`, {
         method: 'POST',
         body: formData,
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
       }, 95000); // 95 second timeout for solving math problems (90s backend + 5s buffer)
 
       // Handle response
       if (response.ok) {
-        const result: MathSolutionResponse = await response.json();
+        const backendResult: BackendResponse = await response.json();
+        // Convert backend response to frontend format
+        const result = this.parseBackendResponse(backendResult);
         return result;
       } else {
         // Handle API errors
@@ -169,26 +267,24 @@ class MathSolverApiService {
    * @returns Promise with the solution response
    */
   async solveMathFromFile(file: File): Promise<MathSolutionResponse> {
-    try {
+    return this.tryMultipleUrls(async (url) => {
       const formData = new FormData();
-      formData.append('image', file);
+      formData.append('file', file); // Use 'file' instead of 'image' to match backend
 
-      const response = await fetch(`${this.baseUrl}/solve-equation`, {
+      const response = await this.fetchWithTimeout(`${url}/solve`, {
         method: 'POST',
         body: formData,
-      });
+      }, 95000);
 
       if (response.ok) {
-        const result: MathSolutionResponse = await response.json();
+        const backendResult: BackendResponse = await response.json();
+        const result = this.parseBackendResponse(backendResult);
         return result;
       } else {
         const errorData: ApiError = await response.json();
         throw new Error(errorData.detail || `API Error: ${response.status}`);
       }
-    } catch (error) {
-      console.error('Error solving math equation:', error);
-      throw error;
-    }
+    });
   }
 }
 

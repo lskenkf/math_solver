@@ -221,7 +221,7 @@ export default function HomeScreen() {
       {isLoading && (
         <ThemedView style={styles.loadingContainer}>
           <ActivityIndicator size="large" color="#007AFF" />
-          <ThemedText style={styles.loadingText}>Solving your math problem...</ThemedText>
+          <ThemedText style={styles.loadingText}>{loadingMessage}</ThemedText>
         </ThemedView>
       )}
 

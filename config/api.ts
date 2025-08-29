@@ -24,14 +24,8 @@ const getLocalBackendUrl = (): string => {
       return `http://${debuggerHost}:${port}`;
     }
     
-    // Fallback IPs for different scenarios
-    if (Platform.OS === 'android') {
-      // Android emulator
-      return `http://10.0.2.2:${port}`;
-    } else {
-      // iOS simulator - try localhost first
-      return `http://localhost:${port}`;
-    }
+    // For all platforms, prefer localhost first
+    return `http://localhost:${port}`;
   }
   
   // Production fallback
@@ -41,17 +35,16 @@ const getLocalBackendUrl = (): string => {
 // Get your computer's local network IP (update this if needed)
 const LOCAL_NETWORK_IP = '192.168.178.31';
 
-// Default configuration with smart URL detection
+// Default configuration - prioritize working network IP for React Native
 export const API_CONFIG = {
-  // Smart backend URL that adapts to your environment
-  BASE_URL: getLocalBackendUrl(),
+  // Use network IP as primary since it's proven to work
+  BASE_URL: `http://${LOCAL_NETWORK_IP}:8000`,
   
   // Alternative URLs to try if the primary fails
   FALLBACK_URLS: [
-    `http://${LOCAL_NETWORK_IP}:8000`,  // Your computer's network IP
-    'http://localhost:8000',            // Localhost
+    'http://localhost:8000',           // Localhost (may fail in RN)
+    'http://127.0.0.1:8000',           // Alternative localhost format
     'http://10.0.2.2:8000',            // Android emulator
-    'http://127.0.0.1:8000',           // Alternative localhost
   ],
   
   // Timeout for API requests (in milliseconds) - 95 seconds to allow backend 90s + 5s buffer
