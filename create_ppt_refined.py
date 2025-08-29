@@ -100,9 +100,9 @@ def create_math_solver_presentation():
     title.height = Inches(1.5)
     
     # Subtitle
-    subtitle.text = "AI-Powered Mathematical Problem Solver\n\nFrom Image to Solution in Seconds"
+    subtitle.text = "AI-Powered Mathematical Problem Solver\n\nFrom Image to Solution in Seconds\n\nPresented by [Your Name]"
     sub_para = subtitle.text_frame.paragraphs[0]
-    sub_para.font.size = Pt(28)
+    sub_para.font.size = Pt(26)
     sub_para.alignment = PP_ALIGN.CENTER
     
     subtitle.top = Inches(3.8)
@@ -110,13 +110,23 @@ def create_math_solver_presentation():
     subtitle.width = Inches(12.33)
     subtitle.height = Inches(2.5)
     
-    # Slide 2: The Problem
+    # Slide 2: About Me / Introduction
+    create_slide_with_content(prs, "About Me 👨‍💻", 
+"""🎓 [Your Background/Education]
+
+💼 [Your Experience/Role]
+
+🚀 Passionate about AI and Education Technology
+
+💡 Built this Math Solver to revolutionize learning""")
+    
+    # Slide 3: The Problem
     create_slide_with_content(prs, "The Problem 🤔", 
 """• Students struggle with complex math problems
 • No instant step-by-step guidance available
 • Time-consuming manual calculations""")
     
-    # Slide 3: Our Solution
+    # Slide 4: Our Solution
     create_slide_with_content(prs, "Our Solution ✨", 
 """📸 Snap a photo of any math problem
 
@@ -124,7 +134,7 @@ def create_math_solver_presentation():
 
 📋 Get detailed step-by-step solutions""")
     
-    # Slide 4: How It Works
+    # Slide 5: How It Works
     create_slide_with_content(prs, "How It Works 🔄", 
 """1️⃣ Take a photo of your math problem
 
@@ -132,7 +142,7 @@ def create_math_solver_presentation():
 
 3️⃣ Receive step-by-step solution with verification""")
     
-    # Slide 5: Key Features
+    # Slide 6: Key Features
     create_slide_with_content(prs, "Key Features 🌟", 
 """⚡ Fast: Results in under 90 seconds
 
@@ -140,7 +150,7 @@ def create_math_solver_presentation():
 
 📱 Easy: Simple photo-to-solution interface""")
     
-    # Slide 6: Technology Stack
+    # Slide 7: Technology Stack
     create_slide_with_content(prs, "Technology Stack 🏗️", 
 """📱 React Native Frontend
 
@@ -148,7 +158,7 @@ def create_math_solver_presentation():
 
 🤖 OpenAI GPT-4o-mini Vision Model""")
     
-    # Slide 7: Live Demo Example
+    # Slide 8: Live Demo Example
     create_slide_with_content(prs, "Example: System of Equations 📊", 
 """Input: x + y = 31, x - y = 18
 
@@ -157,7 +167,7 @@ Solution Steps:
 • Solve: x = 24.5, y = 6.5
 • Verify: ✅ Both equations satisfied""")
     
-    # Slide 8: Market Opportunity
+    # Slide 9: Market Opportunity
     create_slide_with_content(prs, "Market Opportunity 🎯", 
 """📚 Students: 1.6 billion worldwide
 
@@ -165,7 +175,7 @@ Solution Steps:
 
 📈 EdTech Market: $89.49 billion globally""")
     
-    # Slide 9: Business Model
+    # Slide 10: Business Model
     create_slide_with_content(prs, "Business Model 💰", 
 """📱 Freemium: 10 problems/day free
 
@@ -173,7 +183,7 @@ Solution Steps:
 
 🏢 Enterprise: Educational institutions""")
     
-    # Slide 10: Competitive Advantage
+    # Slide 11: Competitive Advantage
     create_slide_with_content(prs, "Why We Win 🏆", 
 """🔍 Advanced AI vs basic calculators
 
@@ -181,7 +191,7 @@ Solution Steps:
 
 📸 Image recognition vs manual input""")
     
-    # Slide 11: Roadmap
+    # Slide 12: Roadmap
     create_slide_with_content(prs, "What's Next 🔮", 
 """🌍 Multi-language support
 
@@ -189,7 +199,7 @@ Solution Steps:
 
 🎓 Educational content integration""")
     
-    # Slide 12: Call to Action
+    # Slide 13: Call to Action
     create_slide_with_content(prs, "Get Involved 🚀", 
 """💰 Investors: Join the EdTech revolution
 
@@ -199,7 +209,7 @@ Solution Steps:
 
 🐱 Repository: github.com/lskenkf/math_solver""")
     
-    # Slide 13: Thank You
+    # Slide 14: Thank You
     create_slide_with_content(prs, "Thank You! 🙏", 
 """Questions & Discussion
 
@@ -213,7 +223,8 @@ Solution Steps:
     prs.save('Math_Solver_Refined_Presentation.pptx')
     print("✅ Refined PowerPoint presentation created successfully!")
     print("📁 File saved as: Math_Solver_Refined_Presentation.pptx")
-    print("🎯 Features: Key points only, larger fonts, better presentation flow")
+    print("🎯 Features: Personal introduction, key points only, larger fonts, better presentation flow")
+    print("👨‍💻 Note: Please update [Your Name], [Your Background/Education], and [Your Experience/Role] placeholders")
 
 if __name__ == "__main__":
     try:
