@@ -4,6 +4,33 @@ import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { MathSolutionResponse } from '@/services/mathSolverApi';
 
+// Helper function to separate descriptive text from numerical operations
+const parseCalculationText = (text: string) => {
+  // Split by common mathematical patterns and operations
+  const lines = text.split('\n').filter(line => line.trim());
+  const descriptiveText: string[] = [];
+  const operations: string[] = [];
+  
+  lines.forEach(line => {
+    const trimmedLine = line.trim();
+    // Check if line contains mathematical operations (numbers, operators, equations)
+    const hasMathOperations = /[0-9]+|\+|\-|\*|\/|=|\^|\(|\)|≈|√|∫|∑|lim|sin|cos|tan|log/.test(trimmedLine);
+    const hasEqualsSign = /=/.test(trimmedLine);
+    const isMainlyNumbers = /^[0-9\s\+\-\*\/\=\.\(\)]+$/.test(trimmedLine);
+    
+    if (hasEqualsSign || isMainlyNumbers || (hasMathOperations && trimmedLine.length < 50)) {
+      operations.push(trimmedLine);
+    } else {
+      descriptiveText.push(trimmedLine);
+    }
+  });
+  
+  return {
+    description: descriptiveText.join(' '),
+    operations: operations
+  };
+};
+
 interface Props {
   solution: MathSolutionResponse;
 }
@@ -44,73 +71,61 @@ export function MathSolutionDisplay({ solution }: Props) {
           <ThemedText type="subtitle" style={styles.sectionTitle}>
             🔢 Step-by-Step Solution
           </ThemedText>
-          {solution.steps.map((step, index) => (
-            <ThemedView key={index} style={[
-              styles.stepContainer,
-              index === solution.steps.length - 1 ? styles.finalStepContainer : {}
-            ]}>
-              <ThemedView style={styles.stepHeader}>
-                <ThemedText style={[
-                  styles.stepNumber,
-                  index === solution.steps.length - 1 ? styles.finalStepNumber : {}
-                ]}>
-                  {step.description}
-                </ThemedText>
-                <ThemedText style={styles.stepStatus}>
-                  {step.result}
-                </ThemedText>
+          {solution.steps.map((step, index) => {
+            const parsedCalculation = parseCalculationText(step.calculation);
+            return (
+              <ThemedView key={index} style={[
+                styles.stepContainer,
+                index === solution.steps.length - 1 ? styles.finalStepContainer : {}
+              ]}>
+                <ThemedView style={styles.stepHeader}>
+                  <ThemedText style={[
+                    styles.stepNumber,
+                    index === solution.steps.length - 1 ? styles.finalStepNumber : {}
+                  ]}>
+                    {step.description}
+                  </ThemedText>
+                  <ThemedText style={styles.stepStatus}>
+                    {step.result}
+                  </ThemedText>
+                </ThemedView>
+                
+                {/* Descriptive text */}
+                {parsedCalculation.description && (
+                  <ThemedView style={styles.descriptionContainer}>
+                    <ThemedText style={styles.description}>
+                      {parsedCalculation.description}
+                    </ThemedText>
+                  </ThemedView>
+                )}
+                
+                {/* Numerical operations */}
+                {parsedCalculation.operations.length > 0 && (
+                  <ThemedView style={styles.calculationContainer}>
+                    {parsedCalculation.operations.map((operation, opIndex) => (
+                      <ThemedText key={opIndex} style={styles.calculation}>
+                        {operation}
+                      </ThemedText>
+                    ))}
+                  </ThemedView>
+                )}
+                
+                {/* Fallback for when parsing doesn't work well */}
+                {!parsedCalculation.description && parsedCalculation.operations.length === 0 && (
+                  <ThemedView style={styles.calculationContainer}>
+                    <ThemedText style={styles.calculation}>
+                      {step.calculation}
+                    </ThemedText>
+                  </ThemedView>
+                )}
               </ThemedView>
-              <ThemedView style={styles.calculationContainer}>
-                <ThemedText style={styles.calculation}>
-                  {step.calculation}
-                </ThemedText>
-              </ThemedView>
-            </ThemedView>
-          ))}
+            );
+          })}
         </ThemedView>
 
-        {/* Final Numerical Solution */}
-        {(solution.solution.x !== null || solution.solution.y !== null) && (
-          <ThemedView style={styles.section}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              🎯 Numerical Answer
-            </ThemedText>
-            <ThemedView style={styles.finalSolutionContainer}>
-              {solution.solution.x !== null && (
-                <ThemedView style={styles.solutionRow}>
-                  <ThemedText style={styles.solutionLabel}>x =</ThemedText>
-                  <ThemedText style={styles.solutionValue}>
-                    {typeof solution.solution.x === 'number' ? solution.solution.x.toFixed(4) : solution.solution.x}
-                  </ThemedText>
-                </ThemedView>
-              )}
-              {solution.solution.y !== null && (
-                <ThemedView style={styles.solutionRow}>
-                  <ThemedText style={styles.solutionLabel}>y =</ThemedText>
-                  <ThemedText style={styles.solutionValue}>
-                    {typeof solution.solution.y === 'number' ? solution.solution.y.toFixed(4) : solution.solution.y}
-                  </ThemedText>
-                </ThemedView>
-              )}
-            </ThemedView>
-          </ThemedView>
-        )}
 
-        {/* Raw Response (for debugging) */}
-        {solution.raw_response && (
-          <ThemedView style={styles.section}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              🔧 AI Response (Debug)
-            </ThemedText>
-            <ThemedView style={styles.rawResponseContainer}>
-              <ScrollView style={styles.rawResponseScroll}>
-                <ThemedText style={styles.rawResponse}>
-                  {solution.raw_response}
-                </ThemedText>
-              </ScrollView>
-            </ThemedView>
-          </ThemedView>
-        )}
+
+
       </ThemedView>
     </ScrollView>
   );
@@ -125,10 +140,12 @@ const styles = StyleSheet.create({
   },
   titleContainer: {
     alignItems: 'center',
-    marginBottom: 20,
-    paddingVertical: 16,
+    marginBottom: 24,
+    padding: 16,
     borderRadius: 12,
-    backgroundColor: 'rgba(0, 122, 255, 0.1)',
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   title: {
     textAlign: 'center',
@@ -146,11 +163,11 @@ const styles = StyleSheet.create({
   },
   equationContainer: {
     padding: 12,
-    backgroundColor: '#f8f9fa',
+    backgroundColor: '#ffffff',
     borderRadius: 8,
     marginBottom: 8,
-    borderLeftWidth: 4,
-    borderLeftColor: '#007AFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   equation: {
     fontSize: 16,
@@ -159,15 +176,15 @@ const styles = StyleSheet.create({
   },
   approachContainer: {
     padding: 12,
-    backgroundColor: '#fff3cd',
+    backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#ffeaa7',
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   approach: {
     fontSize: 14,
     fontStyle: 'italic',
-    color: '#856404',
+    color: '#333333',
   },
   stepContainer: {
     marginBottom: 16,
@@ -175,11 +192,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#ffffff',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#e1e5e9',
+    borderColor: 'rgba(0, 0, 0, 0.1)',
   },
   finalStepContainer: {
-    backgroundColor: '#d1ecf1',
-    borderColor: '#bee5eb',
+    backgroundColor: '#f8f9fa',
+    borderColor: 'rgba(0, 0, 0, 0.15)',
   },
   stepHeader: {
     flexDirection: 'row',
@@ -194,7 +211,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   finalStepNumber: {
-    color: '#0c5460',
+    color: '#007AFF',
     fontWeight: '700',
   },
   stepStatus: {
@@ -207,10 +224,21 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     fontStyle: 'italic',
   },
+  descriptionContainer: {
+    marginBottom: 8,
+    paddingHorizontal: 4,
+  },
+  description: {
+    fontSize: 14,
+    lineHeight: 20,
+    color: '#333333',
+  },
   calculationContainer: {
     padding: 8,
     backgroundColor: '#f8f9fa',
-    borderRadius: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   calculation: {
     fontSize: 14,
@@ -223,31 +251,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#28a745',
   },
-  finalSolutionContainer: {
-    padding: 16,
-    backgroundColor: '#d4edda',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#28a745',
-  },
-  solutionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginVertical: 4,
-  },
-  solutionLabel: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#155724',
-    marginRight: 8,
-  },
-  solutionValue: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#155724',
-    fontFamily: 'monospace',
-  },
+
   verificationContainer: {
     padding: 12,
     backgroundColor: '#e3f2fd',
@@ -260,23 +264,7 @@ const styles = StyleSheet.create({
     color: '#1565c0',
     fontStyle: 'italic',
   },
-  rawResponseContainer: {
-    padding: 12,
-    backgroundColor: '#f8f9fa',
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#dee2e6',
-    maxHeight: 200,
-  },
-  rawResponseScroll: {
-    flex: 1,
-  },
-  rawResponse: {
-    fontSize: 12,
-    fontFamily: 'monospace',
-    color: '#6c757d',
-    lineHeight: 16,
-  },
+
 });
 
 export default MathSolutionDisplay;

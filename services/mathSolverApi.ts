@@ -441,7 +441,7 @@ class MathSolverApiService {
       return {
         description: isLastStep ? "Final Answer" : `Step ${index + 1}`,
         calculation: stepText,
-        result: isLastStep ? "✅ Complete" : "→ Continue"
+        result: isLastStep ? "✅ Complete" : ""
       };
     });
     
