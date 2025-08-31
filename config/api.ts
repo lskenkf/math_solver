@@ -32,17 +32,18 @@ const getLocalBackendUrl = (): string => {
   return `http://localhost:${port}`;
 };
 
-// Get your computer's local network IP (update this if needed)
-const LOCAL_NETWORK_IP = '192.168.178.31';
+// Production backend server IP - ONLY this server will be used
+const BACKEND_SERVER_IP = '37.60.234.118';
 
-// Default configuration - prioritize working network IP for React Native
+// API Configuration - ONLY uses production server, no fallbacks
 export const API_CONFIG = {
-  // Use network IP as primary since it's proven to work
-  BASE_URL: `http://${LOCAL_NETWORK_IP}:8000`,
+  // ONLY use the production server
+  BASE_URL: `http://${BACKEND_SERVER_IP}:8000`,
   
-  // Alternative URLs to try if the primary fails
+  // Kept for compatibility but NOT used anymore - frontend uses ONLY the server above
   FALLBACK_URLS: [
-    'http://localhost:8000',           // Localhost (may fail in RN)
+    'http://192.168.178.31:8000',      // Previous local network IP (for dev)
+    'http://localhost:8000',           // Local development
     'http://127.0.0.1:8000',           // Alternative localhost format
     'http://10.0.2.2:8000',            // Android emulator
   ],
@@ -57,7 +58,7 @@ export const API_CONFIG = {
 // Different configurations for different environments
 export const ENVIRONMENTS = {
   development: {
-    BASE_URL: getLocalBackendUrl(),
+    BASE_URL: `http://${BACKEND_SERVER_IP}:8000`, // Use your server in development too
     FALLBACK_URLS: API_CONFIG.FALLBACK_URLS,
     TIMEOUT: 95000,
   },
@@ -67,9 +68,9 @@ export const ENVIRONMENTS = {
     TIMEOUT: 30000,
   },
   production: {
-    BASE_URL: 'https://api.yourapp.com',
+    BASE_URL: `http://${BACKEND_SERVER_IP}:8000`,
     FALLBACK_URLS: [],
-    TIMEOUT: 30000,
+    TIMEOUT: 95000,
   },
 };
 

@@ -13,9 +13,11 @@ import {
 
 import MathSolutionDisplay from '@/components/MathSolutionDisplay';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
+import QuickAuth from '@/components/QuickAuth';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
 import { MathSolutionResponse, mathSolverApi } from '@/services/mathSolverApi';
+import { useAuth } from '@/context/AuthContext';
 
 export default function HomeScreen() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
@@ -23,6 +25,9 @@ export default function HomeScreen() {
   const [solution, setSolution] = useState<MathSolutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loadingMessage, setLoadingMessage] = useState<string>('Solving your math problem...');
+  
+  // Use the auth context
+  const { isAuthenticated, isLoading: isCheckingAuth, setAuthenticated } = useAuth();
 
   // Request permissions on component mount
   React.useEffect(() => {
@@ -95,6 +100,12 @@ export default function HomeScreen() {
       return;
     }
 
+    // Check if authenticated, if not do nothing (auth screen will be shown)
+    if (!isAuthenticated) {
+      Alert.alert('Authentication Required', 'Please login first to solve math problems.');
+      return;
+    }
+
     console.log('🔄 Starting math solving process...');
     console.log('📸 Selected image URI:', selectedImage);
 
@@ -162,6 +173,45 @@ export default function HomeScreen() {
     setError(null);
   };
 
+  const handleAuthSuccess = () => {
+    setAuthenticated(true);
+    console.log('✅ User authenticated successfully');
+  };
+
+  const handleLogout = async () => {
+    try {
+      await mathSolverApi.logout();
+      setAuthenticated(false);
+      setSolution(null);
+      setSelectedImage(null);
+      setError(null);
+      console.log('👋 User logged out');
+    } catch (error) {
+      console.error('❌ Error during logout:', error);
+    }
+  };
+
+  // Show loading screen while checking authentication
+  if (isCheckingAuth) {
+    return (
+      <ThemedView style={styles.centerContainer}>
+        <ActivityIndicator size="large" color="#007AFF" />
+        <ThemedText style={styles.loadingText}>Loading Math Solver...</ThemedText>
+      </ThemedView>
+    );
+  }
+
+  // Show full screen login if not authenticated
+  if (!isAuthenticated) {
+    return (
+      <QuickAuth
+        visible={true}
+        onAuthSuccess={handleAuthSuccess}
+        fullScreen={true}
+      />
+    );
+  }
+
   return (
     <ParallaxScrollView
       headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
@@ -172,6 +222,12 @@ export default function HomeScreen() {
       }>
       <ThemedView style={styles.titleContainer}>
         <ThemedText type="title">Math Solver 🧮</ThemedText>
+        {isAuthenticated && (
+          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+            <Ionicons name="log-out" size={20} color="#dc3545" />
+            <ThemedText style={styles.logoutText}>Logout</ThemedText>
+          </TouchableOpacity>
+        )}
       </ThemedView>
       
       <ThemedView style={styles.descriptionContainer}>
@@ -180,6 +236,18 @@ export default function HomeScreen() {
           Take a photo or select an image of a math problem, and our AI will solve it step by step!
         </ThemedText>
 
+        {isAuthenticated && (
+          <View style={styles.authStatus}>
+            <View style={styles.authInfo}>
+              <Ionicons name="checkmark-circle" size={16} color="#28a745" />
+              <ThemedText style={styles.authStatusText}>✅ Connected to 37.60.234.118:8000</ThemedText>
+            </View>
+            <TouchableOpacity style={styles.smallLogoutButton} onPress={handleLogout}>
+              <Ionicons name="log-out" size={14} color="#dc3545" />
+              <ThemedText style={styles.smallLogoutText}>Logout</ThemedText>
+            </TouchableOpacity>
+          </View>
+        )}
       </ThemedView>
 
       {/* Image Selection Section */}
@@ -267,16 +335,36 @@ export default function HomeScreen() {
           </ThemedText>
         </ThemedView>
       )}
+
+
     </ParallaxScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  centerContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 16,
+  },
   titleContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  logoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 8,
+    borderRadius: 8,
+  },
+  logoutText: {
+    fontSize: 14,
+    color: '#dc3545',
+    fontWeight: '600',
   },
   headerImageContainer: {
     alignItems: 'center',
@@ -293,6 +381,53 @@ const styles = StyleSheet.create({
     padding: 16,
     backgroundColor: 'rgba(0, 122, 255, 0.1)',
     borderRadius: 12,
+  },
+  loginPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    padding: 12,
+    backgroundColor: 'rgba(0, 122, 255, 0.2)',
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  loginPromptText: {
+    color: '#007AFF',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  authStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    backgroundColor: 'rgba(40, 167, 69, 0.1)',
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  authInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  authStatusText: {
+    color: '#28a745',
+    fontWeight: '600',
+    fontSize: 14,
+  },
+  smallLogoutButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    padding: 6,
+    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+    borderRadius: 6,
+  },
+  smallLogoutText: {
+    fontSize: 12,
+    color: '#dc3545',
+    fontWeight: '600',
   },
   imageSection: {
     marginBottom: 24,
