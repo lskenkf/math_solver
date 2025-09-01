@@ -19,6 +19,7 @@ import ParallaxScrollView from '@/components/ParallaxScrollView';
 import QuickAuth from '@/components/QuickAuth';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
+import ChatMessageRenderer from '@/components/ChatMessageRenderer';
 import { mathSolverApi } from '@/services/mathSolverApi';
 import { useAuth } from '@/context/AuthContext';
 
@@ -290,9 +291,10 @@ export default function HomeScreen() {
                 </Animated.View>
               </ThemedView>
             ) : (
-              <ThemedText style={styles.assistantMessageText}>
-                {message.content}
-              </ThemedText>
+              <ChatMessageRenderer 
+                content={message.content}
+                style={styles.assistantMessageText}
+              />
             )}
           </ThemedView>
           <ThemedText style={styles.timestamp}>
