@@ -40,8 +40,33 @@ export interface ApiError {
   detail: string;
 }
 
+// Streaming interfaces
+export interface StreamChunk {
+  chunk: string;
+  problem_id: string;
+}
+
+export interface StreamFullResponse {
+  full_response: string;
+  problem_id: string;
+}
+
+export interface StreamError {
+  error: string;
+}
+
+export type StreamEvent = StreamChunk | StreamFullResponse | StreamError;
+
+export interface StreamingSolutionState {
+  isStreaming: boolean;
+  currentChunks: string[];
+  fullResponse: string | null;
+  problemId: string | null;
+  error: string | null;
+}
+
 class MathSolverApiService {
-  private baseUrl = 'http://37.60.234.118:8000'; // Force your server URL
+  private baseUrl = 'http://192.168.178.31:8000'; // Use your computer's IP address
   private workingUrl: string | null = null; // Cache the working URL
   private accessToken: string | null = null; // Store auth token
   private isInitialized = false;
@@ -174,6 +199,7 @@ class MathSolverApiService {
     
     const isAuth = !!this.accessToken;
     console.log(`🔑 Authentication check: ${isAuth ? 'AUTHENTICATED' : 'NOT AUTHENTICATED'}`);
+    console.log(`🔑 Token value: ${this.accessToken ? 'Present' : 'Missing'}`);
     return isAuth;
   }
 
@@ -183,6 +209,39 @@ class MathSolverApiService {
   async getAccessToken(): Promise<string | null> {
     await this.waitForInitialization();
     return this.accessToken;
+  }
+
+  /**
+   * Verify that the current token is valid by making a test API call
+   */
+  async verifyToken(): Promise<boolean> {
+    try {
+      await this.waitForInitialization();
+      
+      if (!this.accessToken) {
+        console.log('🔍 No token to verify');
+        return false;
+      }
+      
+      console.log('🔍 Verifying token with backend...');
+      const response = await this.fetchWithTimeout(`${this.baseUrl}/me`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      
+      if (response.ok) {
+        console.log('✅ Token verification successful');
+        return true;
+      } else {
+        console.log('❌ Token verification failed:', response.status);
+        return false;
+      }
+    } catch (error) {
+      console.error('❌ Token verification error:', error);
+      return false;
+    }
   }
 
   /**
@@ -198,6 +257,16 @@ class MathSolverApiService {
     await this.removeStoredToken();
     
     console.log('👋 User logged out successfully - all tokens cleared');
+  }
+
+  /**
+   * Force re-authentication by clearing stored tokens
+   */
+  async forceReauth(): Promise<void> {
+    console.log('🔄 Forcing re-authentication...');
+    this.accessToken = null;
+    await this.removeStoredToken();
+    console.log('✅ Stored tokens cleared, ready for re-authentication');
   }
 
   /**
@@ -596,6 +665,253 @@ class MathSolverApiService {
         console.error("❌ API call failed (file upload):", errorMessage);
         throw new Error(errorMessage);
       }
+    });
+  }
+
+  /**
+   * Solve a math equation from an image with streaming
+   * @param imageUri URI of the image containing the math equation
+   * @param onChunk Callback for each stream chunk
+   * @param onComplete Callback when streaming is complete
+   * @param onError Callback for streaming errors
+   * @returns Promise that resolves when streaming is complete
+   */
+  async solveMathFromImageStream(
+    imageUri: string,
+    onChunk: (chunk: string, problemId: string) => void,
+    onComplete: (fullResponse: string, problemId: string) => void,
+    onError: (error: string) => void
+  ): Promise<void> {
+    return this.callServer(async (url) => {
+      // Create form data
+      const formData = new FormData();
+      
+      // Add the image to form data with the correct field name expected by backend
+      formData.append('file', {
+        uri: imageUri,
+        type: 'image/jpeg',
+        name: 'math_equation.jpg',
+      } as any);
+
+      console.log('📡 Starting streaming request to:', `${url}/solve/stream`);
+
+      try {
+        // Use fetch with streaming support
+        const response = await fetch(`${url}/solve/stream`, {
+          method: 'POST',
+          headers: {
+            ...this.getAuthHeaders(),
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+          body: formData,
+        });
+
+        console.log('📡 Response status:', response.status);
+        console.log('📡 Response headers:', Object.fromEntries(response.headers.entries()));
+        console.log('📡 Response ok:', response.ok);
+        console.log('📡 Response body exists:', !!response.body);
+        console.log('📡 Content-Type:', response.headers.get('content-type'));
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Streaming request failed:', response.status, errorText);
+          throw new Error(`Streaming request failed: ${response.status} - ${errorText}`);
+        }
+
+        // For streaming responses, we need to handle the case where response.body might not be detected
+        // but the response is actually streaming
+        if (response.headers.get('content-type')?.includes('text/event-stream')) {
+          console.log('📡 Detected streaming response, proceeding...');
+        } else if (!response.body) {
+          console.error('❌ No response body for streaming');
+          throw new Error('No response body for streaming');
+        }
+
+        // Try to get the reader, fallback to text() if body is not available
+        let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+        
+        if (response.body) {
+          reader = response.body.getReader();
+        } else if (response.headers.get('content-type')?.includes('text/event-stream')) {
+          // For streaming responses without detectable body, try to read as text
+          console.log('📡 Using text() fallback for streaming response');
+          const text = await response.text();
+          console.log('📡 Received text response:', text);
+          
+          // Process the text as if it were streaming data
+          const lines = text.split('\n');
+          let accumulatedResponse = '';
+          for (const line of lines) {
+            const trimmedLine = line.trim();
+            if (trimmedLine.startsWith('data: ')) {
+              try {
+                const jsonData = trimmedLine.substring(6);
+                const event: StreamEvent = JSON.parse(jsonData);
+                
+                if ('chunk' in event) {
+                  console.log('📝 Received chunk:', event.chunk);
+                  accumulatedResponse += event.chunk;
+                  onChunk(event.chunk, event.problem_id);
+                } else if ('full_response' in event) {
+                  console.log('✅ Received full response, length:', event.full_response.length);
+                  onComplete(event.full_response, event.problem_id);
+                  return;
+                } else if ('error' in event) {
+                  console.error('❌ Stream error:', event.error);
+                  onError(event.error);
+                  return;
+                }
+              } catch (parseError) {
+                console.warn('⚠️ Failed to parse stream event:', trimmedLine, parseError);
+              }
+            }
+          }
+          return;
+        } else {
+          throw new Error('No response body for streaming');
+        }
+
+        // If we have a reader, use the streaming approach
+        if (reader) {
+          const decoder = new TextDecoder();
+          let buffer = '';
+          let accumulatedResponse = '';
+
+          console.log('📡 Stream started, reading chunks...');
+
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) {
+              console.log('📡 Stream completed');
+              break;
+            }
+
+            // Decode the chunk and add to buffer
+            buffer += decoder.decode(value, { stream: true });
+            
+            // Process complete lines
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || ''; // Keep incomplete line in buffer
+
+            for (const line of lines) {
+              const trimmedLine = line.trim();
+              if (trimmedLine.startsWith('data: ')) {
+                try {
+                  const jsonData = trimmedLine.substring(6); // Remove 'data: ' prefix
+                  const event: StreamEvent = JSON.parse(jsonData);
+                  
+                  if ('chunk' in event) {
+                    console.log('📝 Received chunk:', event.chunk);
+                    accumulatedResponse += event.chunk;
+                    onChunk(event.chunk, event.problem_id);
+                  } else if ('full_response' in event) {
+                    console.log('✅ Received full response, length:', event.full_response.length);
+                    onComplete(event.full_response, event.problem_id);
+                    return; // Exit the streaming loop
+                  } else if ('error' in event) {
+                    console.error('❌ Stream error:', event.error);
+                    onError(event.error);
+                    return; // Exit the streaming loop
+                  }
+                } catch (parseError) {
+                  console.warn('⚠️ Failed to parse stream event:', trimmedLine, parseError);
+                }
+              }
+            }
+          }
+        }
+      } catch (error) {
+        console.error('❌ Streaming error:', error);
+        onError(error instanceof Error ? error.message : 'Unknown streaming error');
+        throw error;
+      }
+    });
+  }
+
+  /**
+   * Test if the streaming endpoint is available
+   */
+  async testStreamingEndpoint(): Promise<boolean> {
+    try {
+      console.log('🔍 Testing streaming endpoint availability...');
+      
+      // Try to make a GET request to the root endpoint to check if server is up
+      const rootResponse = await fetch(`${this.baseUrl}/`, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+        },
+      });
+      
+      if (!rootResponse.ok) {
+        console.log('❌ Server not responding');
+        return false;
+      }
+      
+      const rootData = await rootResponse.json();
+      const hasStreamingEndpoint = rootData.endpoints && rootData.endpoints['POST /solve/stream'];
+      
+      console.log(`📡 Streaming endpoint test result: ${hasStreamingEndpoint ? 'Available' : 'Not Found'}`);
+      return hasStreamingEndpoint;
+    } catch (error) {
+      console.error('❌ Error testing streaming endpoint:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Send a text message to ChatGPT and get response
+   */
+  async sendChatMessage(message: string): Promise<string> {
+    return this.callServer(async (url) => {
+      console.log('💬 Sending chat message:', message);
+      
+      const response = await fetch(`${url}/chat`, {
+        method: 'POST',
+        headers: {
+          ...this.getAuthHeaders(),
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ message }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Chat request failed: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.response;
+    });
+  }
+
+  /**
+   * Send an image to ChatGPT and get response
+   */
+  async sendImageMessage(imageUri: string): Promise<string> {
+    return this.callServer(async (url) => {
+      console.log('📸 Sending image message');
+      
+      const formData = new FormData();
+      formData.append('file', { uri: imageUri, type: 'image/jpeg', name: 'math_equation.jpg' } as any);
+
+      const response = await fetch(`${url}/solve/image`, {
+        method: 'POST',
+        headers: {
+          ...this.getAuthHeaders(),
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Image request failed: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      return data.response;
     });
   }
 }

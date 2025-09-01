@@ -1,30 +1,46 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
     ActivityIndicator,
     Alert,
     Platform,
     StyleSheet,
     TouchableOpacity,
-    View
+    View,
+    ScrollView,
+    Animated,
+    TextInput,
+    KeyboardAvoidingView
 } from 'react-native';
 
-import MathSolutionDisplay from '@/components/MathSolutionDisplay';
 import ParallaxScrollView from '@/components/ParallaxScrollView';
 import QuickAuth from '@/components/QuickAuth';
 import { ThemedText } from '@/components/ThemedText';
 import { ThemedView } from '@/components/ThemedView';
-import { MathSolutionResponse, mathSolverApi } from '@/services/mathSolverApi';
+import { mathSolverApi } from '@/services/mathSolverApi';
 import { useAuth } from '@/context/AuthContext';
 
+interface ChatMessage {
+  id: string;
+  type: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  imageUri?: string;
+  isStreaming?: boolean;
+}
+
 export default function HomeScreen() {
-  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [solution, setSolution] = useState<MathSolutionResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loadingMessage, setLoadingMessage] = useState<string>('Solving your math problem...');
+  const [inputText, setInputText] = useState('');
+  const [showImagePicker, setShowImagePicker] = useState(false);
+  
+  // Refs
+  const scrollViewRef = useRef<ScrollView>(null);
+  const [typingAnimation] = useState(new Animated.Value(0));
   
   // Use the auth context
   const { isAuthenticated, isLoading: isCheckingAuth, setAuthenticated } = useAuth();
@@ -33,6 +49,35 @@ export default function HomeScreen() {
   React.useEffect(() => {
     requestPermissions();
   }, []);
+
+  // Animate typing indicator
+  useEffect(() => {
+    if (messages.some(msg => msg.isStreaming)) {
+      const animation = Animated.loop(
+        Animated.sequence([
+          Animated.timing(typingAnimation, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(typingAnimation, {
+            toValue: 0,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      );
+      animation.start();
+      return () => animation.stop();
+    }
+  }, [messages]);
+
+  // Auto-scroll to bottom
+  useEffect(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 100);
+  }, [messages]);
 
   const requestPermissions = async () => {
     if (Platform.OS !== 'web') {
@@ -64,9 +109,7 @@ export default function HomeScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setSelectedImage(result.assets[0].uri);
-        setSolution(null);
-        setError(null);
+        handleImageSelected(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Error taking photo:', error);
@@ -84,9 +127,7 @@ export default function HomeScreen() {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setSelectedImage(result.assets[0].uri);
-        setSolution(null);
-        setError(null);
+        handleImageSelected(result.assets[0].uri);
       }
     } catch (error) {
       console.error('Error picking image:', error);
@@ -94,100 +135,171 @@ export default function HomeScreen() {
     }
   };
 
-  const solveMath = async () => {
-    if (!selectedImage) {
-      Alert.alert('No Image', 'Please select or take a photo first.');
-      return;
-    }
-
-    // Check if authenticated, if not do nothing (auth screen will be shown)
-    if (!isAuthenticated) {
-      Alert.alert('Authentication Required', 'Please login first to solve math problems.');
-      return;
-    }
-
-    console.log('🔄 Starting math solving process...');
-    console.log('📸 Selected image URI:', selectedImage);
-
-    setIsLoading(true);
-    setError(null);
-    setSolution(null);
-    setLoadingMessage('Connecting to AI backend...');
-
-    // Progress messages
-    const progressMessages = [
-      'Connecting to AI backend...',
-      'Uploading your math problem...',
-      'AI is analyzing the image...',
-      'Processing mathematical equations...',
-      'Generating step-by-step solution...',
-      'Almost done...'
-    ];
-
-    let messageIndex = 0;
-    const progressInterval = setInterval(() => {
-      messageIndex = (messageIndex + 1) % progressMessages.length;
-      setLoadingMessage(progressMessages[messageIndex]);
-    }, 3000);
-
-    // Timeout warning after 30 seconds  
-    const timeoutWarning = setTimeout(() => {
-      setLoadingMessage('Complex math problem detected. This may take up to 90 seconds...');
-    }, 30000);
-
+  const handleImageSelected = async (imageUri: string) => {
+    // Add user message with image
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      content: '📸 I have a math problem to solve!',
+      timestamp: new Date(),
+      imageUri: imageUri,
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setShowImagePicker(false);
+    
+    // Show typing indicator
+    const typingMessage: ChatMessage = {
+      id: `typing-${Date.now()}`,
+      type: 'assistant',
+      content: '🤖 AI is analyzing your math problem...',
+      timestamp: new Date(),
+      isStreaming: true,
+    };
+    
+    setMessages(prev => [...prev, typingMessage]);
+    
     try {
-      console.log('📤 Sending image to backend...');
-      const result = await mathSolverApi.solveMathFromImage(selectedImage);
-      console.log('✅ Received solution from backend:', result);
-      setSolution(result);
-    } catch (error) {
-      console.error('❌ Error solving math:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to solve math problem';
-      setError(errorMessage);
+      const response = await mathSolverApi.sendImageMessage(imageUri);
       
-      // Show specific timeout message
-      if (errorMessage.includes('timed out')) {
-        Alert.alert(
-          'Request Timed Out', 
-          'The AI backend took more than 90 seconds to respond. This might happen with very complex math problems or network issues. Please try again.',
-          [
-            { text: 'OK', style: 'default' },
-            { text: 'Retry', onPress: () => solveMath(), style: 'cancel' }
-          ]
-        );
-      } else {
-        Alert.alert('Error', `Failed to solve math problem: ${errorMessage}`);
-      }
-    } finally {
-      clearInterval(progressInterval);
-      clearTimeout(timeoutWarning);
-      setIsLoading(false);
-      setLoadingMessage('Solving your math problem...');
-      console.log('🏁 Math solving process completed');
+      // Replace typing message with response
+      setMessages(prev => prev.map(msg => 
+        msg.id === typingMessage.id 
+          ? {
+              ...msg,
+              content: response,
+              isStreaming: false,
+            }
+          : msg
+      ));
+    } catch (error) {
+      console.error('❌ Image solve error:', error);
+      
+      // Replace typing message with error
+      setMessages(prev => prev.map(msg => 
+        msg.id === typingMessage.id 
+          ? {
+              ...msg,
+              content: `❌ Error: ${error instanceof Error ? error.message : 'Failed to solve math problem'}`,
+              isStreaming: false,
+            }
+          : msg
+      ));
     }
   };
 
-  const resetAll = () => {
-    setSelectedImage(null);
-    setSolution(null);
-    setError(null);
-  };
-
-  const handleAuthSuccess = () => {
-    setAuthenticated(true);
-    console.log('✅ User authenticated successfully');
+  const handleSendMessage = async () => {
+    if (!inputText.trim()) return;
+    
+    const userMessage: ChatMessage = {
+      id: `user-${Date.now()}`,
+      type: 'user',
+      content: inputText,
+      timestamp: new Date(),
+    };
+    
+    setMessages(prev => [...prev, userMessage]);
+    setInputText('');
+    
+    // Show typing indicator
+    const typingMessage: ChatMessage = {
+      id: `typing-${Date.now()}`,
+      type: 'assistant',
+      content: '🤖 AI is thinking...',
+      timestamp: new Date(),
+      isStreaming: true,
+    };
+    
+    setMessages(prev => [...prev, typingMessage]);
+    
+    try {
+      const response = await mathSolverApi.sendChatMessage(inputText);
+      
+      // Replace typing message with response
+      setMessages(prev => prev.map(msg => 
+        msg.id === typingMessage.id 
+          ? {
+              ...msg,
+              content: response,
+              isStreaming: false,
+            }
+          : msg
+      ));
+    } catch (error) {
+      console.error('❌ Chat error:', error);
+      
+      // Replace typing message with error
+      setMessages(prev => prev.map(msg => 
+        msg.id === typingMessage.id 
+          ? {
+              ...msg,
+              content: `❌ Error: ${error instanceof Error ? error.message : 'Failed to get response'}`,
+              isStreaming: false,
+            }
+          : msg
+      ));
+    }
   };
 
   const handleLogout = async () => {
     try {
       await mathSolverApi.logout();
       setAuthenticated(false);
-      setSolution(null);
-      setSelectedImage(null);
-      setError(null);
+      setMessages([]);
       console.log('👋 User logged out');
     } catch (error) {
       console.error('❌ Error during logout:', error);
+    }
+  };
+
+  const renderMessage = (message: ChatMessage) => {
+    if (message.type === 'user') {
+      return (
+        <ThemedView key={message.id} style={styles.userMessageContainer}>
+          <ThemedView style={styles.userMessage}>
+            {message.imageUri && (
+              <Image
+                source={{ uri: message.imageUri }}
+                style={styles.messageImage}
+                contentFit="cover"
+              />
+            )}
+            <ThemedText style={styles.userMessageText}>
+              {message.content}
+            </ThemedText>
+          </ThemedView>
+          <ThemedText style={styles.timestamp}>
+            {message.timestamp.toLocaleTimeString()}
+          </ThemedText>
+        </ThemedView>
+      );
+    } else {
+      return (
+        <ThemedView key={message.id} style={styles.assistantMessageContainer}>
+          <ThemedView style={styles.assistantAvatar}>
+            <Ionicons name="calculator" size={20} color="#007AFF" />
+          </ThemedView>
+          <ThemedView style={styles.assistantMessage}>
+            {message.isStreaming ? (
+              <ThemedView style={styles.streamingContent}>
+                <ThemedText style={styles.assistantMessageText}>
+                  {message.content || '🤖 AI is thinking...'}
+                </ThemedText>
+                <Animated.View style={[styles.typingIndicator, { opacity: typingAnimation }]}>
+                  <View style={styles.dot} />
+                </Animated.View>
+              </ThemedView>
+            ) : (
+              <ThemedText style={styles.assistantMessageText}>
+                {message.content}
+              </ThemedText>
+            )}
+          </ThemedView>
+          <ThemedText style={styles.timestamp}>
+            {message.timestamp.toLocaleTimeString()}
+          </ThemedText>
+        </ThemedView>
+      );
     }
   };
 
@@ -206,342 +318,341 @@ export default function HomeScreen() {
     return (
       <QuickAuth
         visible={true}
-        onAuthSuccess={handleAuthSuccess}
+        onAuthSuccess={(token) => {
+          setAuthenticated(true);
+          console.log('✅ Authentication successful');
+        }}
         fullScreen={true}
       />
     );
   }
 
   return (
-    <ParallaxScrollView
-      headerBackgroundColor={{ light: '#A1CEDC', dark: '#1D3D47' }}
-      headerImage={
-        <View style={styles.headerImageContainer}>
-          <Ionicons name="calculator" size={120} color="#ffffff" style={styles.calculatorIcon} />
-        </View>
-      }>
-      <ThemedView style={styles.titleContainer}>
-        <ThemedText type="title">Math Solver 🧮</ThemedText>
-        {isAuthenticated && (
-          <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
-            <Ionicons name="log-out" size={20} color="#dc3545" />
-            <ThemedText style={styles.logoutText}>Logout</ThemedText>
-          </TouchableOpacity>
-        )}
-      </ThemedView>
-      
-      <ThemedView style={styles.descriptionContainer}>
-        <ThemedText type="subtitle">AI-Powered Math Problem Solver</ThemedText>
-        <ThemedText>
-          Take a photo or select an image of a math problem, and our AI will solve it step by step!
+    <KeyboardAvoidingView style={styles.container} behavior={Platform.OS === 'ios' ? 'padding' : 'height'}>
+      {/* Header */}
+      <ThemedView style={styles.header}>
+        <ThemedText type="title" style={styles.headerTitle}>
+          Math Solver AI
         </ThemedText>
-
-        {isAuthenticated && (
-          <View style={styles.authStatus}>
-            <View style={styles.authInfo}>
-              <Ionicons name="checkmark-circle" size={16} color="#28a745" />
-              <ThemedText style={styles.authStatusText}>✅ Connected to 37.60.234.118:8000</ThemedText>
-            </View>
-            <TouchableOpacity style={styles.smallLogoutButton} onPress={handleLogout}>
-              <Ionicons name="log-out" size={14} color="#dc3545" />
-              <ThemedText style={styles.smallLogoutText}>Logout</ThemedText>
-            </TouchableOpacity>
-          </View>
-        )}
+        <TouchableOpacity style={styles.logoutButton} onPress={handleLogout}>
+          <Ionicons name="log-out" size={20} color="#dc3545" />
+        </TouchableOpacity>
       </ThemedView>
 
-      {/* Image Selection Section */}
-      <ThemedView style={styles.imageSection}>
-        <ThemedText type="subtitle" style={styles.sectionTitle}>
-          📸 Select Math Problem
-        </ThemedText>
-        
-        <View style={styles.buttonContainer}>
-          <TouchableOpacity style={styles.actionButton} onPress={takePhoto}>
-            <Ionicons name="camera" size={24} color="#ffffff" />
-            <ThemedText style={styles.buttonText}>Take Photo</ThemedText>
+      {/* Chat Messages */}
+      <ScrollView
+        ref={scrollViewRef}
+        style={styles.messagesContainer}
+        contentContainerStyle={styles.messagesContent}
+        showsVerticalScrollIndicator={false}
+      >
+        {messages.length === 0 ? (
+          <ThemedView style={styles.emptyState}>
+            <Ionicons name="chatbubbles" size={48} color="#007AFF" />
+            <ThemedText style={styles.emptyStateTitle}>
+              Math Solver Chat
+            </ThemedText>
+            <ThemedText style={styles.emptyStateText}>
+              Take a photo of a math problem and I'll solve it step by step!
+            </ThemedText>
+          </ThemedView>
+        ) : (
+          messages.map(renderMessage)
+        )}
+      </ScrollView>
+
+      {/* Input Area */}
+      <ThemedView style={styles.inputContainer}>
+        <View style={styles.inputRow}>
+          <TouchableOpacity 
+            style={styles.attachButton} 
+            onPress={() => setShowImagePicker(!showImagePicker)}
+          >
+            <Ionicons name="camera" size={24} color="#007AFF" />
           </TouchableOpacity>
           
-          <TouchableOpacity style={styles.actionButton} onPress={pickImage}>
-            <Ionicons name="images" size={24} color="#ffffff" />
-            <ThemedText style={styles.buttonText}>Choose Image</ThemedText>
+          <TextInput
+            style={styles.textInput}
+            value={inputText}
+            onChangeText={setInputText}
+            placeholder="Type a message or take a photo..."
+            placeholderTextColor="#999"
+            multiline
+            maxLength={500}
+          />
+          
+          <TouchableOpacity 
+            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]} 
+            onPress={handleSendMessage}
+            disabled={!inputText.trim()}
+          >
+            <Ionicons name="send" size={20} color={inputText.trim() ? "#007AFF" : "#ccc"} />
           </TouchableOpacity>
         </View>
 
-        {selectedImage && (
-          <View style={styles.selectedImageContainer}>
-            <Image source={{ uri: selectedImage }} style={styles.selectedImage} />
-            <TouchableOpacity style={styles.solveButton} onPress={solveMath} disabled={isLoading}>
-              {isLoading ? (
-                <ActivityIndicator color="#ffffff" />
-              ) : (
-                <>
-                  <Ionicons name="flash" size={24} color="#ffffff" />
-                  <ThemedText style={styles.buttonText}>Solve Math Problem</ThemedText>
-                </>
-              )}
+        {/* Image Picker Options */}
+        {showImagePicker && (
+          <ThemedView style={styles.imagePickerContainer}>
+            <TouchableOpacity style={styles.imagePickerButton} onPress={takePhoto}>
+              <Ionicons name="camera" size={24} color="#007AFF" />
+              <ThemedText style={styles.imagePickerText}>Take Photo</ThemedText>
             </TouchableOpacity>
-          </View>
+            
+            <TouchableOpacity style={styles.imagePickerButton} onPress={pickImage}>
+              <Ionicons name="images" size={24} color="#007AFF" />
+              <ThemedText style={styles.imagePickerText}>Choose Image</ThemedText>
+            </TouchableOpacity>
+          </ThemedView>
         )}
       </ThemedView>
-
-      {/* Loading State */}
-      {isLoading && (
-        <ThemedView style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#007AFF" />
-          <ThemedText style={styles.loadingText}>{loadingMessage}</ThemedText>
-        </ThemedView>
-      )}
-
-      {/* Error State */}
-      {error && (
-        <ThemedView style={styles.errorContainer}>
-          <Ionicons name="alert-circle" size={24} color="#dc3545" />
-          <ThemedText style={styles.errorText}>{error}</ThemedText>
-          <TouchableOpacity style={styles.retryButton} onPress={solveMath}>
-            <ThemedText style={styles.retryButtonText}>Try Again</ThemedText>
-          </TouchableOpacity>
-        </ThemedView>
-      )}
-
-      {/* Solution Display */}
-      {solution && (
-        <ThemedView style={styles.solutionSection}>
-          <View style={styles.solutionHeader}>
-            <ThemedText type="subtitle" style={styles.sectionTitle}>
-              🎯 Solution
-            </ThemedText>
-            <TouchableOpacity style={styles.resetButton} onPress={resetAll}>
-              <Ionicons name="refresh" size={20} color="#007AFF" />
-              <ThemedText style={styles.resetButtonText}>New Problem</ThemedText>
-            </TouchableOpacity>
-          </View>
-          <MathSolutionDisplay solution={solution} />
-        </ThemedView>
-      )}
-
-      {/* Instructions */}
-      {!selectedImage && !solution && (
-        <ThemedView style={styles.instructionsContainer}>
-          <ThemedText type="subtitle">How to Use:</ThemedText>
-          <ThemedText style={styles.instruction}>
-            1. 📷 Take a photo or select an image of a math problem
-          </ThemedText>
-          <ThemedText style={styles.instruction}>
-            2. ⚡ Tap "Solve Math Problem" to get AI-powered solution
-          </ThemedText>
-          <ThemedText style={styles.instruction}>
-            3. 📖 View step-by-step solution and verification
-          </ThemedText>
-        </ThemedView>
-      )}
-
-
-    </ParallaxScrollView>
+    </KeyboardAvoidingView>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#f8f9fa',
+  },
   centerContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
     gap: 16,
   },
-  titleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-  },
-  logoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    padding: 8,
-    borderRadius: 8,
-  },
-  logoutText: {
-    fontSize: 14,
-    color: '#dc3545',
-    fontWeight: '600',
-  },
-  headerImageContainer: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    height: 178,
-    width: '100%',
-  },
-  calculatorIcon: {
-    opacity: 0.7,
-  },
-  descriptionContainer: {
-    gap: 8,
-    marginBottom: 24,
-    padding: 16,
-    backgroundColor: 'rgba(0, 122, 255, 0.1)',
-    borderRadius: 12,
-  },
-  loginPrompt: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    padding: 12,
-    backgroundColor: 'rgba(0, 122, 255, 0.2)',
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  loginPromptText: {
-    color: '#007AFF',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  authStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 12,
-    backgroundColor: 'rgba(40, 167, 69, 0.1)',
-    borderRadius: 8,
-    marginTop: 8,
-  },
-  authInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  authStatusText: {
-    color: '#28a745',
-    fontWeight: '600',
-    fontSize: 14,
-  },
-  smallLogoutButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    padding: 6,
-    backgroundColor: 'rgba(220, 53, 69, 0.1)',
-    borderRadius: 6,
-  },
-  smallLogoutText: {
-    fontSize: 12,
-    color: '#dc3545',
-    fontWeight: '600',
-  },
-  imageSection: {
-    marginBottom: 24,
-    padding: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    borderRadius: 12,
-  },
-  sectionTitle: {
-    marginBottom: 16,
-    fontWeight: '600',
-  },
-  buttonContainer: {
-    flexDirection: 'row',
-    gap: 16,
-    marginBottom: 16,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    backgroundColor: '#007AFF',
-    borderRadius: 12,
-  },
-  buttonText: {
-    color: '#ffffff',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  selectedImageContainer: {
-    alignItems: 'center',
-    gap: 16,
-  },
-  selectedImage: {
-    width: '100%',
-    height: 200,
-    borderRadius: 12,
-  },
-  solveButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    padding: 16,
-    backgroundColor: '#28a745',
-    borderRadius: 12,
-    width: '100%',
-  },
-  loadingContainer: {
-    alignItems: 'center',
-    gap: 16,
-    padding: 24,
-    marginBottom: 24,
-  },
   loadingText: {
     fontSize: 16,
     fontStyle: 'italic',
   },
-  errorContainer: {
-    flexDirection: 'column',
-    alignItems: 'center',
-    gap: 12,
-    padding: 16,
-    backgroundColor: '#f8d7da',
-    borderRadius: 12,
-    marginBottom: 24,
-    borderWidth: 1,
-    borderColor: '#dc3545',
-  },
-  errorText: {
-    color: '#721c24',
-    textAlign: 'center',
-    fontSize: 14,
-  },
-  retryButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    backgroundColor: '#dc3545',
-    borderRadius: 8,
-  },
-  retryButtonText: {
-    color: '#ffffff',
-    fontWeight: '600',
-  },
-  solutionSection: {
-    marginBottom: 24,
-  },
-  solutionHeader: {
+  header: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    backgroundColor: '#ffffff',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
   },
-  resetButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  logoutButton: {
     padding: 8,
   },
-  resetButtonText: {
-    color: '#007AFF',
-    fontWeight: '600',
+  messagesContainer: {
+    flex: 1,
   },
-  instructionsContainer: {
-    gap: 12,
+  messagesContent: {
     padding: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
-    borderRadius: 12,
-    marginBottom: 24,
+    paddingBottom: 20,
   },
-  instruction: {
+  emptyState: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyStateTitle: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
+    paddingHorizontal: 32,
+  },
+  userMessageContainer: {
+    alignItems: 'flex-end',
+    marginBottom: 16,
+  },
+  userMessage: {
+    backgroundColor: '#007AFF',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    maxWidth: '80%',
+  },
+  userMessageText: {
+    color: '#ffffff',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  messageImage: {
+    width: 200,
+    height: 150,
+    borderRadius: 12,
+    marginBottom: 8,
+  },
+  assistantMessageContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  assistantAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#ffffff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  assistantMessage: {
+    backgroundColor: '#ffffff',
+    borderRadius: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    maxWidth: '85%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  assistantMessageText: {
+    color: '#333333',
+    fontSize: 16,
+    lineHeight: 24,
+  },
+  streamingContent: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+  },
+  typingIndicator: {
+    marginLeft: 8,
+  },
+  dot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#007AFF',
+  },
+  solutionContent: {
+    gap: 12,
+  },
+  solutionTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginBottom: 8,
+  },
+  solutionSection: {
+    gap: 4,
+  },
+  sectionTitle: {
     fontSize: 14,
+    fontWeight: '600',
+    color: '#007AFF',
+    marginBottom: 4,
+  },
+  sectionContent: {
+    fontSize: 14,
+    color: '#333333',
     lineHeight: 20,
+  },
+  stepContainer: {
+    backgroundColor: '#f8f9fa',
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+  },
+  stepDescription: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#333333',
+    marginBottom: 4,
+  },
+  stepCalculation: {
+    fontSize: 14,
+    color: '#666666',
+    fontFamily: 'monospace',
+    marginBottom: 4,
+  },
+  stepResult: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#007AFF',
+  },
+  answerContainer: {
+    backgroundColor: '#e3f2fd',
+    padding: 12,
+    borderRadius: 8,
+  },
+  answerText: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#007AFF',
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#999999',
+    marginTop: 4,
+    marginLeft: 8,
+  },
+  inputContainer: {
+    backgroundColor: '#ffffff',
+    borderTopWidth: 1,
+    borderTopColor: '#e0e0e0',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  inputRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 8,
+  },
+  attachButton: {
+    padding: 8,
+  },
+  textInput: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#e0e0e0',
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    fontSize: 16,
+    maxHeight: 100,
+    backgroundColor: '#f8f9fa',
+  },
+  sendButton: {
+    padding: 8,
+  },
+  sendButtonDisabled: {
+    opacity: 0.5,
+  },
+  imagePickerContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: '#f0f0f0',
+    marginTop: 8,
+  },
+  imagePickerButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 20,
+  },
+  imagePickerText: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#007AFF',
   },
 });
