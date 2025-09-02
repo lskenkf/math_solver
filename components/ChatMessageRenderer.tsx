@@ -8,7 +8,7 @@ interface ChatMessageRendererProps {
 }
 
 // Component to render LaTeX using WebView and MathJax
-const LatexWebView = ({ latex, style }: { latex: string; style?: any }) => {
+const LatexWebView = ({ latex, style, align = 'center' }: { latex: string; style?: any; align?: 'left' | 'center' | 'right' }) => {
   const screenWidth = Dimensions.get('window').width;
   
   const html = `
@@ -50,7 +50,7 @@ const LatexWebView = ({ latex, style }: { latex: string; style?: any }) => {
           color: #333;
         }
         .math-container {
-          text-align: center;
+          text-align: ${align};
           margin: 4px 0;
         }
       </style>
@@ -93,44 +93,84 @@ const LatexWebView = ({ latex, style }: { latex: string; style?: any }) => {
 };
 
 export default function ChatMessageRenderer({ content, style }: ChatMessageRendererProps) {
-  // Function to detect LaTeX expressions in text and format them nicely
-  const formatContent = (text: string) => {
-    // Split by LaTeX delimiters (handle all common formats)
-    const latexPattern = /(\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\$\$[\s\S]*?\$\$|\$[^$\n]*?\$)/g;
-    let lastIndex = 0;
-    let match;
-    const parts: Array<{ type: 'text' | 'math'; content: string }> = [];
-    
-    while ((match = latexPattern.exec(text)) !== null) {
-      // Add text before LaTeX
-      if (match.index > lastIndex) {
-        parts.push({
-          type: 'text',
-          content: text.slice(lastIndex, match.index)
-        });
+  // Parse content into math blocks (\\[...\\]) and text blocks
+  const parseContent = (text: string) => {
+    const mathBlockRegex = /(\\\[[\s\S]*?\\\])/g;
+    const segments = text.split(mathBlockRegex);
+    return segments.map((segment, index) => {
+      if (segment.match(mathBlockRegex)) {
+        return { type: 'math' as const, content: segment };
       }
-      
-      // Add LaTeX as formatted math
-      parts.push({
-        type: 'math',
-        content: match[1]
-      });
-      
-      lastIndex = match.index + match[0].length;
-    }
-    
-    // Add remaining text
-    if (lastIndex < text.length) {
-      parts.push({
-        type: 'text',
-        content: text.slice(lastIndex)
-      });
-    }
-    
-    return parts;
+      return { type: 'text' as const, content: segment };
+    });
   };
 
-  const parts = formatContent(content);
+  // Convert common LaTeX document-style markup to lightweight markdown-like text
+  const convertLatexToMarkdown = (latexContent: string) => {
+    let markdownContent = latexContent;
+
+    // Sections -> headers
+    markdownContent = markdownContent.replace(/\\section\*\{([^}]+)\}/g, '## $1');
+    markdownContent = markdownContent.replace(/\\section\{([^}]+)\}/g, '## $1');
+
+    // Text formatting
+    markdownContent = markdownContent.replace(/\\textbf\{([^}]+)\}/g, '**$1**');
+    markdownContent = markdownContent.replace(/\\emph\{([^}]+)\}/g, '*$1*');
+    markdownContent = markdownContent.replace(/\\textit\{([^}]+)\}/g, '*$1*');
+
+    // Lists (itemize/enumerate)
+    markdownContent = markdownContent.replace(/\\begin\{itemize\}/g, '');
+    markdownContent = markdownContent.replace(/\\end\{itemize\}/g, '');
+    markdownContent = markdownContent.replace(/(^|\n)\s*\\item\s+/g, '\\n- ');
+
+    markdownContent = markdownContent.replace(/\\begin\{enumerate\}/g, '');
+    markdownContent = markdownContent.replace(/\\end\{enumerate\}/g, '');
+    // For enumerate, keep prefix "1." for readability (not actual ordered rendering here)
+    markdownContent = markdownContent.replace(/(^|\n)\s*\\item\s+/g, '\\n1. ');
+
+    // Spacing
+    markdownContent = markdownContent.replace(/\\vspace\{[^}]+\}/g, '\n\n');
+    markdownContent = markdownContent.replace(/\\\\(?:\[[^\]]*\])?/g, '\n');
+
+    // Text commands
+    markdownContent = markdownContent.replace(/\\text\{([^}]+)\}/g, '$1');
+    markdownContent = markdownContent.replace(/\\quad/g, '    ');
+
+    // Cleanup extra whitespace
+    markdownContent = markdownContent.replace(/\n\s*\n\s*\n/g, '\n\n');
+
+    return markdownContent;
+  };
+
+  // Detect inline math within a line (\\( ... \\) or $...$ but not $$...$$)
+  const containsInlineMath = (text: string) => {
+    const inlinePattern = /(\\\([\s\S]*?\\\)|(?<!\\)\$[^$\n]+(?<!\\)\$)/;
+    return inlinePattern.test(text);
+  };
+
+  // Detect numbered step lines like "1. Step ..." (any leading spaces allowed)
+  const isNumberedStep = (text: string) => {
+    return /^\s*\d+\.\s/.test(text);
+  };
+
+  // Convert minimal inline markdown to HTML for WebView (so MathJax can render math inside bold/italic)
+  const inlineMarkdownToHtml = (text: string) => {
+    // Escape basic HTML chars to avoid breaking
+    const escapeHtml = (s: string) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    let html = escapeHtml(text);
+    // Re-introduce math delimiters (they were escaped); replace escaped delimiters back
+    html = html.replace(/\\\(/g, '\\(').replace(/\\\)/g, '\\)');
+    html = html.replace(/\&\#36;\&\#36;([\s\S]*?)\&\#36;\&\#36;/g, '$$$$($1)$$$$'); // keep $$ $$ if ever escaped (unlikely)
+    html = html.replace(/\&\#36;([^\n]+?)\&\#36;/g, '$$$1$');
+    // Bold and italic
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1<\/strong>');
+    html = html.replace(/\*([^*\n]+)\*/g, '<em>$1<\/em>');
+    // Preserve simple line breaks for multi-line support
+    html = html.replace(/\n/g, '<br/>');
+    return html;
+  };
+
+  const parts = parseContent(content);
 
   return (
     <View style={[styles.container, style]}>
@@ -144,10 +184,66 @@ export default function ChatMessageRenderer({ content, style }: ChatMessageRende
             />
           );
         } else {
+          const markdownLike = convertLatexToMarkdown(part.content);
+          // Render minimal inline markdown (**bold**, *italic*) within Text
+          const renderInlineMarkdown = (text: string) => {
+            const pattern = /(\*\*[^*]+\*\*|\*[^*\n]+\*)/g;
+            const elements: React.ReactNode[] = [];
+            let lastIndex = 0;
+            let match: RegExpExecArray | null;
+            while ((match = pattern.exec(text)) !== null) {
+              if (match.index > lastIndex) {
+                elements.push(text.slice(lastIndex, match.index));
+              }
+              const token = match[0];
+              if (token.startsWith('**')) {
+                elements.push(
+                  <Text key={`${index}-b-${lastIndex}`} style={{ fontWeight: '700' }}>
+                    {token.slice(2, -2)}
+                  </Text>
+                );
+              } else if (token.startsWith('*')) {
+                elements.push(
+                  <Text key={`${index}-i-${lastIndex}`} style={{ fontStyle: 'italic' }}>
+                    {token.slice(1, -1)}
+                  </Text>
+                );
+              }
+              lastIndex = match.index + match[0].length;
+            }
+            if (lastIndex < text.length) {
+              elements.push(text.slice(lastIndex));
+            }
+            return elements;
+          };
+
+          // Preserve line breaks; if a line contains inline math, render via WebView with MathJax
+          const lines = markdownLike.split('\n');
           return (
-            <Text key={index} style={[styles.text, style]}>
-              {part.content}
-            </Text>
+            <View key={index} style={{ alignSelf: 'stretch' }}>
+              {lines.map((line, li) => {
+                const step = isNumberedStep(line);
+                if (containsInlineMath(line)) {
+                  const html = inlineMarkdownToHtml(line);
+                  return (
+                    <View key={`${index}-lwv-${li}`} style={[step ? styles.stepContainer : null]}>
+                      <LatexWebView
+                        latex={html}
+                        style={style}
+                        align={step ? 'left' : 'center'}
+                      />
+                    </View>
+                  );
+                }
+                return (
+                  <View key={`${index}-l-${li}`} style={[step ? styles.stepContainer : null]}>
+                    <Text style={[styles.text, style]}>
+                      {renderInlineMarkdown(line)}
+                    </Text>
+                  </View>
+                );
+              })}
+            </View>
           );
         }
       })}
@@ -168,13 +264,22 @@ const styles = StyleSheet.create({
     marginVertical: 4,
     marginHorizontal: 2,
     alignSelf: 'stretch',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#e9ecef',
-    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    borderWidth: 0,
+    borderColor: 'transparent',
+    overflow: 'visible',
   },
   mathWebView: {
     backgroundColor: 'transparent',
+  },
+  stepContainer: {
+    alignSelf: 'stretch',
+    alignItems: 'flex-start',
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    marginVertical: 4,
   },
 });
