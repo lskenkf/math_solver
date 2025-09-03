@@ -301,7 +301,12 @@ export default function ChatMessageRenderer({ content, style }: ChatMessageRende
         if (part.type === 'math') {
           // Check if this is pure LaTeX content
           const isPure = isPureLatex(part.content);
-          const containerStyle = isPure ? { backgroundColor: '#f8f9fa' } : {};
+          const containerStyle = isPure ? { 
+            backgroundColor: '#f8f9fa',
+            borderRadius: 8,
+            padding: 8,
+            marginVertical: 4
+          } : {};
           
           return (
             <View key={index} style={[styles.mathWebViewContainer, containerStyle]}>
