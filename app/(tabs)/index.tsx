@@ -42,6 +42,9 @@ export default function HomeScreen() {
   // Refs
   const scrollViewRef = useRef<ScrollView>(null);
   const [typingAnimation] = useState(new Animated.Value(0));
+  // Streaming buffers and timers (unused when rendering per chunk)
+  const streamingBufferRef = useRef<string>('');
+  const streamingTimerRef = useRef<NodeJS.Timer | null>(null);
   
   // Use the auth context
   const { isAuthenticated, isLoading: isCheckingAuth, setAuthenticated } = useAuth();
@@ -79,6 +82,26 @@ export default function HomeScreen() {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 100);
   }, [messages]);
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (streamingTimerRef.current) {
+        clearInterval(streamingTimerRef.current);
+        streamingTimerRef.current = null;
+      }
+    };
+  }, []);
+
+  const startStreamingFlush = (typingId: string) => {};
+
+  const stopStreamingFlush = (typingId: string, finalText: string) => {
+    setMessages(prev => prev.map(msg =>
+      msg.id === typingId
+        ? { ...msg, content: finalText, isStreaming: false }
+        : msg
+    ));
+  };
 
   const requestPermissions = async () => {
     if (Platform.OS !== 'web') {
@@ -161,18 +184,26 @@ export default function HomeScreen() {
     setMessages(prev => [...prev, typingMessage]);
     
     try {
-      const response = await mathSolverApi.sendImageMessage(imageUri);
-      
-      // Replace typing message with response
-      setMessages(prev => prev.map(msg => 
-        msg.id === typingMessage.id 
-          ? {
-              ...msg,
-              content: response,
-              isStreaming: false,
-            }
-          : msg
-      ));
+      await mathSolverApi.solveMathFromImageStream(
+        imageUri,
+        (chunk) => {
+          setMessages(prev => prev.map(msg => 
+            msg.id === typingMessage.id 
+              ? {
+                  ...msg,
+                  content: (msg.content || '') + chunk,
+                  isStreaming: true,
+                }
+              : msg
+          ));
+        },
+        (full) => {
+          stopStreamingFlush(typingMessage.id, full);
+        },
+        (err) => {
+          stopStreamingFlush(typingMessage.id, `❌ Error: ${err}`);
+        }
+      );
     } catch (error) {
       console.error('❌ Image solve error:', error);
       
@@ -186,6 +217,7 @@ export default function HomeScreen() {
             }
           : msg
       ));
+      // no timer used in per-chunk mode
     }
   };
 
@@ -214,18 +246,26 @@ export default function HomeScreen() {
     setMessages(prev => [...prev, typingMessage]);
     
     try {
-      const response = await mathSolverApi.sendChatMessage(inputText);
-      
-      // Replace typing message with response
-      setMessages(prev => prev.map(msg => 
-        msg.id === typingMessage.id 
-          ? {
-              ...msg,
-              content: response,
-              isStreaming: false,
-            }
-          : msg
-      ));
+      await mathSolverApi.sendChatMessageStream(
+        inputText,
+        (chunk) => {
+          setMessages(prev => prev.map(msg => 
+            msg.id === typingMessage.id 
+              ? {
+                  ...msg,
+                  content: (msg.content || '') + chunk,
+                  isStreaming: true,
+                }
+              : msg
+          ));
+        },
+        (full) => {
+          stopStreamingFlush(typingMessage.id, full);
+        },
+        (err) => {
+          stopStreamingFlush(typingMessage.id, `❌ Error: ${err}`);
+        }
+      );
     } catch (error) {
       console.error('❌ Chat error:', error);
       
@@ -239,6 +279,7 @@ export default function HomeScreen() {
             }
           : msg
       ));
+      // no timer used in per-chunk mode
     }
   };
 
@@ -281,20 +322,15 @@ export default function HomeScreen() {
             <Ionicons name="calculator" size={20} color="#007AFF" />
           </ThemedView>
           <ThemedView style={styles.assistantMessage}>
-            {message.isStreaming ? (
-              <ThemedView style={styles.streamingContent}>
-                <ThemedText style={styles.assistantMessageText}>
-                  {message.content || '🤖 AI is thinking...'}
-                </ThemedText>
-                <Animated.View style={[styles.typingIndicator, { opacity: typingAnimation }]}>
-                  <View style={styles.dot} />
-                </Animated.View>
-              </ThemedView>
-            ) : (
-              <ChatMessageRenderer 
-                content={message.content}
-                style={styles.assistantMessageText}
-              />
+            <ChatMessageRenderer 
+              content={message.content || '🤖 AI is thinking...'}
+              style={styles.assistantMessageText}
+              isStreaming={!!message.isStreaming}
+            />
+            {message.isStreaming && (
+              <Animated.View style={[styles.typingIndicator, { opacity: typingAnimation }]}> 
+                <View style={styles.dot} />
+              </Animated.View>
             )}
           </ThemedView>
           <ThemedText style={styles.timestamp}>

@@ -5,6 +5,7 @@ import { WebView } from 'react-native-webview';
 interface ChatMessageRendererProps {
   content: string;
   style?: any;
+  isStreaming?: boolean;
 }
 
 // Component to render LaTeX using WebView and MathJax
@@ -138,7 +139,7 @@ const LatexWebView = ({ latex, style, align = 'left' }: { latex: string; style?:
   );
 };
 
-export default function ChatMessageRenderer({ content, style }: ChatMessageRendererProps) {
+export default function ChatMessageRenderer({ content, style, isStreaming = false }: ChatMessageRendererProps) {
   // Parse content into math blocks (\\[...\\]) and text blocks
   const parseContent = (text: string) => {
     const mathBlockRegex = /(\\\[[\s\S]*?\\\])/g;
@@ -149,6 +150,66 @@ export default function ChatMessageRenderer({ content, style }: ChatMessageRende
       }
       return { type: 'text' as const, content: segment };
     });
+  };
+
+  // Streaming-safe parser: only treat COMPLETE math blocks as math; leave incomplete tails as text
+  const parseContentStreaming = (text: string) => {
+    const parts: Array<{ type: 'math' | 'text'; content: string }> = [];
+    let i = 0;
+    const n = text.length;
+
+    const pushText = (end: number) => {
+      if (end > i) {
+        parts.push({ type: 'text', content: text.slice(i, end) });
+      }
+    };
+
+    const findClosing = (start: number, open: string, close: string) => {
+      const closeIdx = text.indexOf(close, start + open.length);
+      return closeIdx;
+    };
+
+    while (i < n) {
+      const nextDisplay = text.indexOf('\\[', i);
+      const nextDollarBlock = text.indexOf('$$', i);
+      const candidates = [nextDisplay, nextDollarBlock].filter(idx => idx !== -1) as number[];
+      if (candidates.length === 0) {
+        // no more blocks
+        pushText(n);
+        break;
+      }
+      const next = Math.min(...candidates);
+      // push text before next block
+      pushText(next);
+
+      // Determine block type
+      if (next === nextDisplay) {
+        const closeIdx = text.indexOf('\\]', next + 2);
+        if (closeIdx !== -1) {
+          const block = text.slice(next, closeIdx + 2);
+          parts.push({ type: 'math', content: block });
+          i = closeIdx + 2;
+          continue;
+        } else {
+          // incomplete; push rest as text and break
+          parts.push({ type: 'text', content: text.slice(next) });
+          break;
+        }
+      } else if (next === nextDollarBlock) {
+        const closeIdx = text.indexOf('$$', next + 2);
+        if (closeIdx !== -1) {
+          const block = text.slice(next, closeIdx + 2);
+          parts.push({ type: 'math', content: block });
+          i = closeIdx + 2;
+          continue;
+        } else {
+          parts.push({ type: 'text', content: text.slice(next) });
+          break;
+        }
+      }
+    }
+
+    return parts;
   };
 
   // Convert common LaTeX document-style markup to lightweight markdown-like text
@@ -293,7 +354,7 @@ export default function ChatMessageRenderer({ content, style }: ChatMessageRende
     return html;
   };
 
-  const parts = parseContent(content);
+  const parts = isStreaming ? parseContentStreaming(content) : parseContent(content);
 
   return (
     <View style={[styles.container, style]}>

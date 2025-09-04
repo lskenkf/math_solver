@@ -4,6 +4,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { API_CONFIG } from '@/config/api';
 
 // Backend response interface - matches what the backend actually returns
@@ -308,6 +309,89 @@ class MathSolverApiService {
       }
       throw error;
     }
+  }
+
+  /**
+   * Perform an SSE POST using XMLHttpRequest for React Native to get incremental progress.
+   * Falls back to fetch where XHR is not available.
+   */
+  private async ssePostXHR(
+    url: string,
+    headers: Record<string, string>,
+    body: any,
+    onEvent: (event: any) => void,
+    onError: (error: string) => void,
+    onComplete: () => void
+  ): Promise<void> {
+    return new Promise((resolve, reject) => {
+      try {
+        const xhr = new XMLHttpRequest();
+        let lastIndex = 0;
+
+        const processDelta = () => {
+          const text = xhr.responseText || '';
+          if (text.length <= lastIndex) return;
+          const newChunk = text.substring(lastIndex);
+          lastIndex = text.length;
+          const lines = newChunk.split('\n');
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              const jsonStr = trimmed.substring(6);
+              try {
+                const evt = JSON.parse(jsonStr);
+                onEvent(evt);
+              } catch {
+                // ignore parse errors for partial lines
+              }
+            }
+          }
+        };
+
+        xhr.onreadystatechange = () => {
+          // readyState 3: LOADING, 4: DONE
+          if (xhr.readyState === 3 || xhr.readyState === 4) {
+            processDelta();
+          }
+          if (xhr.readyState === 4) {
+            // completed
+            if (xhr.status >= 200 && xhr.status < 300) {
+              onComplete();
+              resolve();
+            } else {
+              const err = `SSE request failed: ${xhr.status} - ${xhr.responseText}`;
+              onError(err);
+              reject(new Error(err));
+            }
+          }
+        };
+
+        // Some platforms stream only via progress events
+        xhr.onprogress = () => {
+          processDelta();
+        };
+
+        xhr.onerror = () => {
+          const err = 'Network error during SSE request';
+          onError(err);
+          reject(new Error(err));
+        };
+
+        xhr.open('POST', url, true);
+        // Required to avoid response decoding that buffers
+        try { xhr.overrideMimeType('text/plain; charset=x-user-defined'); } catch {}
+        // Set headers
+        xhr.setRequestHeader('Accept', 'text/event-stream');
+        for (const [k, v] of Object.entries(headers)) {
+          xhr.setRequestHeader(k, v);
+        }
+        xhr.send(body);
+      } catch (error) {
+        const msg = error instanceof Error ? error.message : 'Unknown XHR error';
+        onError(msg);
+        reject(error as any);
+      }
+    });
   }
 
   /**
@@ -696,7 +780,28 @@ class MathSolverApiService {
       console.log('📡 Starting streaming request to:', `${url}/solve/stream`);
 
       try {
-        // Use fetch with streaming support
+        // On native, prefer XHR for incremental progress
+        if (Platform.OS !== 'web') {
+          await this.ssePostXHR(
+            `${url}/solve/stream`,
+            this.getAuthHeaders(),
+            formData as any,
+            (event: StreamEvent) => {
+              if ('chunk' in event) {
+                onChunk(event.chunk, event.problem_id);
+              } else if ('full_response' in event) {
+                onComplete(event.full_response, event.problem_id);
+              } else if ('error' in event) {
+                onError(event.error);
+              }
+            },
+            (err) => onError(err),
+            () => {}
+          );
+          return;
+        }
+
+        // Web: use fetch streaming
         const response = await fetch(`${url}/solve/stream`, {
           method: 'POST',
           headers: {
@@ -884,6 +989,100 @@ class MathSolverApiService {
 
       const data = await response.json();
       return data.response;
+    });
+  }
+
+  /**
+   * Stream a text chat message response via SSE
+   */
+  async sendChatMessageStream(
+    message: string,
+    onChunk: (chunk: string) => void,
+    onComplete: (fullResponse: string) => void,
+    onError: (error: string) => void
+  ): Promise<void> {
+    return this.callServer(async (url) => {
+      try {
+        if (Platform.OS !== 'web') {
+          await this.ssePostXHR(
+            `${url}/chat/stream`,
+            {
+              ...this.getAuthHeaders(),
+              'Content-Type': 'application/json',
+            },
+            JSON.stringify({ message }),
+            (evt: any) => {
+              if ('chunk' in evt) onChunk(evt.chunk);
+              else if ('full_response' in evt) onComplete(evt.full_response);
+              else if ('error' in evt) onError(evt.error);
+            },
+            (err) => onError(err),
+            () => {}
+          );
+          return;
+        }
+
+        const response = await fetch(`${url}/chat/stream`, {
+          method: 'POST',
+          headers: {
+            ...this.getAuthHeaders(),
+            'Content-Type': 'application/json',
+            'Accept': 'text/event-stream',
+            'Cache-Control': 'no-cache',
+          },
+          body: JSON.stringify({ message }),
+        });
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`Streaming chat failed: ${response.status} - ${errorText}`);
+        }
+
+        if (!response.body) {
+          // Fallback: try text parse if body missing but SSE returned
+          const text = await response.text();
+          for (const line of text.split('\n')) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const evt = JSON.parse(trimmed.substring(6));
+                if ('chunk' in evt) onChunk(evt.chunk);
+                if ('full_response' in evt) { onComplete(evt.full_response); return; }
+                if ('error' in evt) { onError(evt.error); return; }
+              } catch {}
+            }
+          }
+          return;
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulated = '';
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() || '';
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              try {
+                const evt = JSON.parse(trimmed.substring(6));
+                if ('chunk' in evt) { accumulated += evt.chunk; onChunk(evt.chunk); }
+                else if ('full_response' in evt) { onComplete(evt.full_response); return; }
+                else if ('error' in evt) { onError(evt.error); return; }
+              } catch {}
+            }
+          }
+        }
+        // If stream ended without explicit full_response, use accumulated
+        if (accumulated) onComplete(accumulated);
+      } catch (error) {
+        onError(error instanceof Error ? error.message : 'Unknown streaming error');
+        throw error;
+      }
     });
   }
 

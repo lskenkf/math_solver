@@ -29,7 +29,7 @@ interface QuickAuthProps {
 export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen = false }: QuickAuthProps) {
   const [isLogin, setIsLogin] = useState(true);
   const [isLoading, setIsLoading] = useState(false);
-  
+
   // Form fields
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
@@ -50,12 +50,12 @@ export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen 
 
       console.log('🔐 Attempting login for:', credentials.username);
       const tokens = await mathSolverApi.login(credentials);
-      
+
       console.log('✅ Login successful, received tokens');
-      
+
       Alert.alert('Success', 'Logged in successfully!', [
-        { 
-          text: 'OK', 
+        {
+          text: 'OK',
           onPress: () => {
             onAuthSuccess();
             onClose?.(); // Only call onClose if it exists
@@ -92,17 +92,17 @@ export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen 
 
       console.log('📝 Attempting registration for:', registerData.username);
       await mathSolverApi.register(registerData);
-      
+
       Alert.alert('Success', 'Account created successfully! Please login.', [
-        { 
-          text: 'OK', 
+        {
+          text: 'OK',
           onPress: () => {
             setIsLogin(true);
             setPassword('');
           }
         }
       ]);
-      
+
     } catch (error) {
       console.error('❌ Registration error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Registration failed';
@@ -140,8 +140,8 @@ export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen 
               {isLogin ? 'Welcome Back!' : 'Get Started'}
             </ThemedText>
             <ThemedText style={styles.welcomeSubtitle}>
-              {isLogin 
-                ? 'Sign in to continue solving math problems' 
+              {isLogin
+                ? 'Sign in to continue solving math problems'
                 : 'Create your account to begin'
               }
             </ThemedText>
@@ -201,10 +201,10 @@ export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen 
                   <ActivityIndicator color="#ffffff" size="small" />
                 ) : (
                   <>
-                    <Ionicons 
-                      name={isLogin ? "log-in" : "person-add"} 
-                      size={20} 
-                      color="#ffffff" 
+                    <Ionicons
+                      name={isLogin ? "log-in" : "person-add"}
+                      size={20}
+                      color="#ffffff"
                     />
                     <ThemedText style={styles.buttonText}>
                       {isLogin ? 'Sign In' : 'Create Account'}
@@ -262,8 +262,8 @@ export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen 
 
         <ScrollView style={styles.content} contentContainerStyle={styles.scrollContent}>
           <ThemedText style={styles.subtitle}>
-            {isLogin 
-              ? 'Please login to solve math problems with AI' 
+            {isLogin
+              ? 'Please login to solve math problems with AI'
               : 'Create an account to get started'
             }
           </ThemedText>
@@ -319,8 +319,8 @@ export default function QuickAuth({ visible, onClose, onAuthSuccess, fullScreen 
               disabled={isLoading}
             >
               <ThemedText style={styles.switchText}>
-                {isLogin 
-                  ? "Don't have an account? Create one" 
+                {isLogin
+                  ? "Don't have an account? Create one"
                   : "Already have an account? Login"
                 }
               </ThemedText>
