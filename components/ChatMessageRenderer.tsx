@@ -140,9 +140,9 @@ const LatexWebView = ({ latex, style, align = 'left' }: { latex: string; style?:
 };
 
 export default function ChatMessageRenderer({ content, style, isStreaming = false }: ChatMessageRendererProps) {
-  // Parse content into math blocks (\\[...\\]) and text blocks
+  // Parse content into math blocks (\\[...\\] and $$...$$) and text blocks
   const parseContent = (text: string) => {
-    const mathBlockRegex = /(\\\[[\s\S]*?\\\])/g;
+    const mathBlockRegex = /(\\\[[\s\S]*?\\\]|\$\$[\s\S]*?\$\$)/g;
     const segments = text.split(mathBlockRegex);
     return segments.map((segment, index) => {
       if (segment.match(mathBlockRegex)) {
@@ -339,7 +339,7 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
     html = html.replace(/\*([^*\n]+)\*/g, '<em>$1<\/em>');
     
     // Handle inline code blocks
-    html = html.replace(/`([^`]+)`/g, '<code style="background-color: #f0f0f0; padding: 2px 4px; border-radius: 3px; font-family: monospace;">$1<\/code>');
+    html = html.replace(/`([^`]+)`/g, '<code style="background-color: transparent; padding: 2px 4px; border-radius: 3px; font-family: monospace;">$1<\/code>');
     
     // Apply header styling if this is a header
     if (isHeader) {
@@ -363,9 +363,9 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
           // Check if this is pure LaTeX content
           const isPure = isPureLatex(part.content);
           const containerStyle = isPure ? { 
-            backgroundColor: '#f8f9fa',
-            borderRadius: 8,
-            padding: 8,
+            backgroundColor: 'transparent',
+            borderRadius: 0,
+            padding: 0,
             marginVertical: 4
           } : {};
           
@@ -419,7 +419,7 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
               } else if (token.startsWith('`')) {
                 elements.push(
                   <Text key={`${index}-c-${lastIndex}`} style={{ 
-                    backgroundColor: '#f0f0f0', 
+                    backgroundColor: 'transparent', 
                     paddingHorizontal: 4, 
                     paddingVertical: 2, 
                     borderRadius: 3, 
@@ -440,58 +440,110 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
 
           // Preserve line breaks; if a line contains inline math, render via WebView with MathJax
           const lines = markdownLike.split('\n');
-          return (
-            <View key={index} style={{ alignSelf: 'stretch' }}>
-              {lines.map((line, li) => {
-                // Skip empty lines to prevent excessive spacing
-                if (line.trim() === '') {
-                  return null;
+          
+          // Group consecutive numbered steps together
+          const processLines = () => {
+            const elements: React.ReactNode[] = [];
+            let i = 0;
+            
+            while (i < lines.length) {
+              const line = lines[i];
+              
+              // Skip empty lines
+              if (line.trim() === '') {
+                i++;
+                continue;
+              }
+              
+              const header = parseMarkdownHeader(line);
+              
+              // Handle markdown headers
+              if (header) {
+                const html = inlineMarkdownToHtml(header.text, true, header.level);
+                elements.push(
+                  <View key={`${index}-h-${i}`} style={styles.headerContainer}>
+                    <LatexWebView
+                      latex={html}
+                      style={style}
+                      align="left"
+                    />
+                  </View>
+                );
+                i++;
+                continue;
+              }
+              
+              // Check if this is the start of a numbered step sequence
+              if (isNumberedStep(line)) {
+                const stepLines: string[] = [];
+                
+                // Collect all consecutive numbered steps
+                while (i < lines.length && isNumberedStep(lines[i])) {
+                  stepLines.push(lines[i]);
+                  i++;
                 }
                 
-                const step = isNumberedStep(line);
-                const header = parseMarkdownHeader(line);
-                
-                // Handle markdown headers
-                if (header) {
-                  const headerStyle = header.level === 2 ? styles.sectionHeader : styles.subsectionHeader;
-                  
-                  // Always render headers with WebView to ensure consistent styling
-                  const html = inlineMarkdownToHtml(header.text, true, header.level);
-                  console.log('Header rendered:', header.text, 'Level:', header.level);
-                  return (
-                    <View key={`${index}-h-${li}`} style={styles.headerContainer}>
-                      <LatexWebView
-                        latex={html}
-                        style={style}
-                        align="left"
-                      />
-                    </View>
-                  );
-                }
-                
-                // Handle inline math
-                if (containsInlineMath(line)) {
-                  const html = inlineMarkdownToHtml(line);
-                  return (
-                    <View key={`${index}-lwv-${li}`} style={[step ? styles.stepContainer : styles.textContainer]}>
-                      <LatexWebView
-                        latex={html}
-                        style={style}
-                        align="left"
-                      />
-                    </View>
-                  );
-                }
-                
-                // Handle regular text
-                return (
-                  <View key={`${index}-l-${li}`} style={[step ? styles.stepContainer : styles.textContainer]}>
+                // Render all steps in a single container
+                elements.push(
+                  <View key={`${index}-steps-${i}`} style={styles.stepGroupContainer}>
+                    {stepLines.map((stepLine, stepIndex) => {
+                      if (containsInlineMath(stepLine)) {
+                        const html = inlineMarkdownToHtml(stepLine);
+                        return (
+                          <View key={`${index}-step-${i}-${stepIndex}`} style={styles.stepContainer}>
+                            <LatexWebView
+                              latex={html}
+                              style={style}
+                              align="left"
+                            />
+                          </View>
+                        );
+                      } else {
+                        return (
+                          <View key={`${index}-step-${i}-${stepIndex}`} style={styles.stepContainer}>
+                            <Text style={[styles.text, style]}>
+                              {renderInlineMarkdown(stepLine)}
+                            </Text>
+                          </View>
+                        );
+                      }
+                    })}
+                  </View>
+                );
+                continue;
+              }
+              
+              // Handle regular lines (non-headers, non-steps)
+              if (containsInlineMath(line)) {
+                const html = inlineMarkdownToHtml(line);
+                elements.push(
+                  <View key={`${index}-lwv-${i}`} style={styles.textContainer}>
+                    <LatexWebView
+                      latex={html}
+                      style={style}
+                      align="left"
+                    />
+                  </View>
+                );
+              } else {
+                elements.push(
+                  <View key={`${index}-l-${i}`} style={styles.textContainer}>
                     <Text style={[styles.text, style]}>
                       {renderInlineMarkdown(line)}
                     </Text>
                   </View>
                 );
-              }).filter(Boolean)}
+              }
+              
+              i++;
+            }
+            
+            return elements;
+          };
+          
+          return (
+            <View key={index} style={{ alignSelf: 'stretch' }}>
+              {processLines()}
             </View>
           );
         }
@@ -529,14 +581,18 @@ const styles = StyleSheet.create({
   stepContainer: {
     alignSelf: 'stretch',
     alignItems: 'flex-start',
-    backgroundColor: '#f8f9fa',
-    borderRadius: 6,
-    paddingVertical: 6,
+    backgroundColor: 'transparent',
+    borderRadius: 0,
+    paddingVertical: 2,
     paddingHorizontal: 12,
-    marginVertical: 3,
+    marginVertical: 1,
     marginLeft: 8,
-    borderLeftWidth: 3,
-    borderLeftColor: '#007AFF',
+    borderLeftWidth: 0,
+    borderLeftColor: 'transparent',
+  },
+  stepGroupContainer: {
+    alignSelf: 'stretch',
+    marginBottom: 6,
   },
   sectionHeader: {
     fontSize: 18,
@@ -561,7 +617,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   noteBlock: {
-    backgroundColor: '#f0f8ff',
+    backgroundColor: 'transparent',
     borderLeftWidth: 4,
     borderLeftColor: '#007AFF',
     padding: 8,
@@ -569,7 +625,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   warningBlock: {
-    backgroundColor: '#fff8f0',
+    backgroundColor: 'transparent',
     borderLeftWidth: 4,
     borderLeftColor: '#ff8c00',
     padding: 8,
@@ -577,7 +633,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   codeBlock: {
-    backgroundColor: '#f5f5f5',
+    backgroundColor: 'transparent',
     padding: 8,
     marginVertical: 4,
     borderRadius: 4,
