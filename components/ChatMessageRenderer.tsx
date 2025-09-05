@@ -346,7 +346,7 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
       const fontSize = headerLevel === 2 ? '18px' : '16px';
       const fontWeight = headerLevel === 2 ? 'bold' : '600';
       const color = headerLevel === 2 ? '#007AFF' : '#333';
-      html = `<div style="font-size: ${fontSize}; font-weight: ${fontWeight}; color: ${color}; margin-top: ${headerLevel === 2 ? '16px' : '12px'}; margin-bottom: ${headerLevel === 2 ? '8px' : '6px'}; text-align: left;">${html}</div>`;
+      html = `<div style="font-size: ${fontSize}; font-weight: ${fontWeight}; color: ${color}; margin-top: ${headerLevel === 2 ? '12px' : '8px'}; margin-bottom: ${headerLevel === 2 ? '6px' : '4px'}; text-align: left;">${html}</div>`;
     }
     
     // Preserve simple line breaks for multi-line support
@@ -443,10 +443,15 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
           return (
             <View key={index} style={{ alignSelf: 'stretch' }}>
               {lines.map((line, li) => {
+                // Skip empty lines to prevent excessive spacing
+                if (line.trim() === '') {
+                  return null;
+                }
+                
                 const step = isNumberedStep(line);
                 const header = parseMarkdownHeader(line);
                 
-                                                // Handle markdown headers
+                // Handle markdown headers
                 if (header) {
                   const headerStyle = header.level === 2 ? styles.sectionHeader : styles.subsectionHeader;
                   
@@ -454,7 +459,7 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
                   const html = inlineMarkdownToHtml(header.text, true, header.level);
                   console.log('Header rendered:', header.text, 'Level:', header.level);
                   return (
-                    <View key={`${index}-h-${li}`}>
+                    <View key={`${index}-h-${li}`} style={styles.headerContainer}>
                       <LatexWebView
                         latex={html}
                         style={style}
@@ -468,7 +473,7 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
                 if (containsInlineMath(line)) {
                   const html = inlineMarkdownToHtml(line);
                   return (
-                    <View key={`${index}-lwv-${li}`} style={[step ? styles.stepContainer : null]}>
+                    <View key={`${index}-lwv-${li}`} style={[step ? styles.stepContainer : styles.textContainer]}>
                       <LatexWebView
                         latex={html}
                         style={style}
@@ -480,13 +485,13 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
                 
                 // Handle regular text
                 return (
-                  <View key={`${index}-l-${li}`} style={[step ? styles.stepContainer : null]}>
+                  <View key={`${index}-l-${li}`} style={[step ? styles.stepContainer : styles.textContainer]}>
                     <Text style={[styles.text, style]}>
                       {renderInlineMarkdown(line)}
                     </Text>
                   </View>
                 );
-              })}
+              }).filter(Boolean)}
             </View>
           );
         }
@@ -503,11 +508,12 @@ const styles = StyleSheet.create({
   },
   text: {
     fontSize: 16,
-    lineHeight: 24,
+    lineHeight: 22,
     textAlign: 'left',
+    marginBottom: 4,
   },
   mathWebViewContainer: {
-    marginVertical: 4,
+    marginVertical: 3,
     marginHorizontal: 2,
     alignSelf: 'stretch',
     backgroundColor: 'transparent',
@@ -523,25 +529,36 @@ const styles = StyleSheet.create({
   stepContainer: {
     alignSelf: 'stretch',
     alignItems: 'flex-start',
-    backgroundColor: 'transparent',
-    borderRadius: 0,
+    backgroundColor: '#f8f9fa',
+    borderRadius: 6,
     paddingVertical: 6,
-    paddingHorizontal: 8,
-    marginVertical: 4,
+    paddingHorizontal: 12,
+    marginVertical: 3,
+    marginLeft: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: '#007AFF',
   },
   sectionHeader: {
     fontSize: 18,
     fontWeight: 'bold',
     color: '#007AFF',
-    marginTop: 16,
-    marginBottom: 8,
+    marginTop: 12,
+    marginBottom: 6,
   },
   subsectionHeader: {
     fontSize: 16,
     fontWeight: '600',
     color: '#333',
-    marginTop: 12,
-    marginBottom: 6,
+    marginTop: 8,
+    marginBottom: 4,
+  },
+  headerContainer: {
+    alignSelf: 'stretch',
+    marginBottom: 2,
+  },
+  textContainer: {
+    alignSelf: 'stretch',
+    marginBottom: 2,
   },
   noteBlock: {
     backgroundColor: '#f0f8ff',

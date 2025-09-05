@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
   assistantMessageText: {
     color: '#333333',
     fontSize: 16,
-    lineHeight: 24,
+    lineHeight: 22,
   },
   streamingContent: {
     flexDirection: 'row',
