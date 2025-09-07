@@ -271,8 +271,9 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
 
   // Detect inline math within a line (\\( ... \\) or $...$ but not $$...$$)
   const containsInlineMath = (text: string) => {
-    // Check for various LaTeX delimiters
-    const inlinePattern = /(\\\([\s\S]*?\\\)|(?<!\\)\$[^$\n]+(?<!\\)\$|\([\s\S]*?\))/;
+    // Check for proper LaTeX delimiters only
+    // Match \( ... \) or $ ... $ (but not $$ ... $$)
+    const inlinePattern = /(\\\([\s\S]*?\\\)|(?<!\\)\$[^$\n]+(?<!\\)\$)/;
     return inlinePattern.test(text);
   };
 
@@ -379,32 +380,37 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
           );
         } else {
           const markdownLike = convertLatexToMarkdown(part.content);
-          // Render minimal inline markdown (**bold**, *italic*, `code`) within Text
+          // Render minimal inline markdown (**bold**, *italic*, `code`) and LaTeX within Text
           const renderInlineMarkdown = (text: string) => {
-            // Check if text contains LaTeX
-            if (containsInlineMath(text)) {
-              // If text contains LaTeX, render it with WebView
-              const html = inlineMarkdownToHtml(text);
-              return (
-                <LatexWebView
-                  latex={html}
-                  style={style}
-                  align="left"
-                />
-              );
-            }
-            
-            // Otherwise, render regular markdown
-            const pattern = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`)/g;
+            // Parse text into segments: regular text, markdown formatting, and LaTeX
+            const pattern = /(\*\*[^*]+\*\*|\*[^*\n]+\*|`[^`]+`|\\\([\s\S]*?\\\)|(?<!\\)\$[^$\n]+(?<!\\)\$)/g;
             const elements: React.ReactNode[] = [];
             let lastIndex = 0;
             let match: RegExpExecArray | null;
+            
             while ((match = pattern.exec(text)) !== null) {
+              // Add text before the match
               if (match.index > lastIndex) {
                 elements.push(text.slice(lastIndex, match.index));
               }
+              
               const token = match[0];
-              if (token.startsWith('**')) {
+              
+              // Handle LaTeX expressions
+              if (token.match(/\\\([\s\S]*?\\\)/) || token.match(/(?<!\\)\$[^$\n]+(?<!\\)\$/)) {
+                // Render LaTeX inline using WebView
+                const html = inlineMarkdownToHtml(token);
+                elements.push(
+                  <LatexWebView
+                    key={`${index}-latex-${lastIndex}`}
+                    latex={html}
+                    style={[style, { height: 20, marginHorizontal: 2 }]}
+                    align="left"
+                  />
+                );
+              }
+              // Handle markdown formatting
+              else if (token.startsWith('**')) {
                 elements.push(
                   <Text key={`${index}-b-${lastIndex}`} style={{ fontWeight: '700' }}>
                     {token.slice(2, -2)}
@@ -430,11 +436,15 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
                   </Text>
                 );
               }
+              
               lastIndex = match.index + match[0].length;
             }
+            
+            // Add remaining text
             if (lastIndex < text.length) {
               elements.push(text.slice(lastIndex));
             }
+            
             return elements;
           };
 
@@ -487,26 +497,13 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
                 elements.push(
                   <View key={`${index}-steps-${i}`} style={styles.stepGroupContainer}>
                     {stepLines.map((stepLine, stepIndex) => {
-                      if (containsInlineMath(stepLine)) {
-                        const html = inlineMarkdownToHtml(stepLine);
-                        return (
-                          <View key={`${index}-step-${i}-${stepIndex}`} style={styles.stepContainer}>
-                            <LatexWebView
-                              latex={html}
-                              style={style}
-                              align="left"
-                            />
-                          </View>
-                        );
-                      } else {
-                        return (
-                          <View key={`${index}-step-${i}-${stepIndex}`} style={styles.stepContainer}>
-                            <Text style={[styles.text, style]}>
-                              {renderInlineMarkdown(stepLine)}
-                            </Text>
-                          </View>
-                        );
-                      }
+                      return (
+                        <View key={`${index}-step-${i}-${stepIndex}`} style={styles.stepContainer}>
+                          <Text style={[styles.text, style]}>
+                            {renderInlineMarkdown(stepLine)}
+                          </Text>
+                        </View>
+                      );
                     })}
                   </View>
                 );
@@ -514,26 +511,13 @@ export default function ChatMessageRenderer({ content, style, isStreaming = fals
               }
               
               // Handle regular lines (non-headers, non-steps)
-              if (containsInlineMath(line)) {
-                const html = inlineMarkdownToHtml(line);
-                elements.push(
-                  <View key={`${index}-lwv-${i}`} style={styles.textContainer}>
-                    <LatexWebView
-                      latex={html}
-                      style={style}
-                      align="left"
-                    />
-                  </View>
-                );
-              } else {
-                elements.push(
-                  <View key={`${index}-l-${i}`} style={styles.textContainer}>
-                    <Text style={[styles.text, style]}>
-                      {renderInlineMarkdown(line)}
-                    </Text>
-                  </View>
-                );
-              }
+              elements.push(
+                <View key={`${index}-l-${i}`} style={styles.textContainer}>
+                  <Text style={[styles.text, style]}>
+                    {renderInlineMarkdown(line)}
+                  </Text>
+                </View>
+              );
               
               i++;
             }

@@ -22,15 +22,7 @@ import { ThemedView } from '@/components/ThemedView';
 import ChatMessageRenderer from '@/components/ChatMessageRenderer';
 import { mathSolverApi } from '@/services/mathSolverApi';
 import { useAuth } from '@/context/AuthContext';
-
-interface ChatMessage {
-  id: string;
-  type: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  imageUri?: string;
-  isStreaming?: boolean;
-}
+import { ChatHistoryService, ChatMessage } from '@/services/chatHistoryService';
 
 export default function HomeScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -48,6 +40,30 @@ export default function HomeScreen() {
   
   // Use the auth context
   const { isAuthenticated, isLoading: isCheckingAuth, setAuthenticated } = useAuth();
+
+  // Load chat history on component mount
+  useEffect(() => {
+    const loadChatHistory = async () => {
+      try {
+        const savedMessages = await ChatHistoryService.loadChatHistory();
+        if (savedMessages.length > 0) {
+          setMessages(savedMessages);
+          console.log(`📖 Loaded ${savedMessages.length} messages from chat history`);
+        }
+      } catch (error) {
+        console.error('❌ Failed to load chat history:', error);
+      }
+    };
+
+    loadChatHistory();
+  }, []);
+
+  // Save chat history whenever messages change
+  useEffect(() => {
+    if (messages.length > 0) {
+      ChatHistoryService.saveChatHistory(messages);
+    }
+  }, [messages]);
 
   // Request permissions on component mount
   React.useEffect(() => {
@@ -288,7 +304,8 @@ export default function HomeScreen() {
       await mathSolverApi.logout();
       setAuthenticated(false);
       setMessages([]);
-      console.log('👋 User logged out');
+      await ChatHistoryService.clearChatHistory();
+      console.log('👋 User logged out and chat history cleared');
     } catch (error) {
       console.error('❌ Error during logout:', error);
     }
